@@ -16,6 +16,24 @@ An all-in-one step-by-step guide to setup Sunshine with all needed tools for Win
 (It's initially just a guide, but as it progresses, it will become more like an AIO tool.)
 <p align="center">
 
+# What is the purpose of installing all of these tools?
+
+There are several reasons:
+
+- A dedicated display for your game stream will be created by the <b>Virtual Display Driver</b>.
+
+- <b>Sunshine Virtual Monitor</b> allows you to switch between your current desktop (or any number of displays you have) and the Virtual Display.
+
+- It will also <b>automatically</b> adjust the resolution, quality, HDR option, and frame rate of the Virtual Display based on client settings (Moonlight settings).
+
+- To save resources for your gaming experience, it will deactivate your current displays and return to your first setup once the stream is finished.
+
+- <b>Playnite</b> will allow you to gather all your games from any platform (otherwise downloaded games included) in one launcher for your convenience.
+
+- <b>Playnite Watcher</b> will simply allow you to stop the stream when you close your game. (Sunshine does not support it natively)
+
+- It will also allow you to <b>automatically</b> import all your games into Sunshine with a click.
+
 # Table of Contents
 - [Sunshine Installation](#sunshine-installation)
 - [Virtual Display Driver](#virtual-display-driver)
