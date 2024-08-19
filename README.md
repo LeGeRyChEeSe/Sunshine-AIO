@@ -1,6 +1,6 @@
 <h1 align='center'>Sunshine-AIO</h1>
 <p align="center">
-<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/images/sunshine_aio.jpg?raw=true" align="center" height=205 alt="Sunshine-AIO" />
+<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/sunshine_aio.jpg?raw=true" align="center" height=205 alt="Sunshine-AIO" />
 </p>
 <p align="center">
 <img src='https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO', alt='Visitors'/>
