@@ -12,8 +12,10 @@
 </a>
 
 <p align="center">
-An all-in-one step-by-step guide to setup Sunshine with all needed tools for Windows (at the moment).<br>
-(It's initially just a guide, but as it progresses, it will become more like an AIO tool.)
+An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows only at the moment).<br>
+(It's initially just a guide, but as it progresses, it will become more like an AIO tool.)<br>
+Contributions to this project are welcomed and highly appreciated.
+
 <p align="center">
 
 # What is the purpose of installing all of these tools?
@@ -52,16 +54,29 @@ There are several reasons:
 
   For Windows System, download the file `sunshine-windows-installer.exe`.
 
+To stream remotely, make sure to open these ports in your router settings and redirect them to your PC.
+
+- `TCP`:
+	- 47984
+	- 47989
+	- 47990
+	- 48010
+
+- `UDP`:
+	- 47998
+	- 47999
+	- 48000
+
 
 ## [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)
 
-1. Download [Virtual Display Driver (Windows 11 22H2+)](https://github.com/itsmikethetech/Virtual-Display-Driver/releases/latest) or [Virtual Display Driver (Windows 10+)](https://github.com/itsmikethetech/Virtual-Display-Driver/releases) depending on your system.
+1. Download [Virtual Display Driver (Windows 11 22H2+)](https://github.com/itsmikethetech/Virtual-Display-Driver/releases/latest).
 
 2. Follow [Installation](https://github.com/itsmikethetech/Virtual-Display-Driver#installation) steps then come back here when done.
 
 3. Disable the new display freshly created from Device Manager or open a privileged terminal and run the command `pnputil /disable-device /deviceid root\iddsampledriver`.
 
-4. <b>(Optional)</b> For example: If you plan to use Moonlight from a Phone, make sure to add the correct resolution of all your clients into the `C:\IddSampleDriver\option.txt` file if they don't exist already.
+> If you plan to use Moonlight from a Phone, make sure to add the correct resolution of <b>all your clients</b> into the <b>`C:\IddSampleDriver\option.txt`</b> file if they don't exist already.
 
 
 ## [Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)
@@ -82,6 +97,12 @@ In the next steps, you can either choose to follow these quick steps or follow t
 		```powershell
 		Install-Module -Name WindowsDisplayManager
 		```
+
+	- To enable the script execution you need to set your Execution Policy from `Default` to `RemoteSigned`:
+		```powershell
+		Set-ExecutionPolicy RemoteSigned
+		```
+		> Source: [PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4#powershell-execution-policies)
 
 4. Download [vsync-toggle](https://github.com/xanderfrangos/vsync-toggle/releases/latest) and copy the file to the `sunshine-virtual-monitor-main` folder.
 
