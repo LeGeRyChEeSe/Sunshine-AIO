@@ -12,131 +12,87 @@
 </a>
 
 <p align="center">
-An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows only at the moment).<br>
-(It's initially just a guide, but as it progresses, it will become more like an AIO tool.)<br>
-Contributions to this project are welcomed and highly appreciated.
+<b>This AIO tool branch is under development. Bugs can appear.</b><br>
+An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows x64).<br>
 
-<p align="center">
-
-# What is the purpose of installing all of these tools?
-
-There are several reasons:
-
-- A dedicated display for your game stream will be created by the <b>Virtual Display Driver</b>.
-
-- <b>Sunshine Virtual Monitor</b> allows you to switch between your current desktop (or any number of displays you have) and the Virtual Display.
-
-- It will also <b>automatically</b> adjust the resolution, quality, HDR option, and frame rate of the Virtual Display based on client settings (Moonlight settings).
-
-- To save resources for your gaming experience, it will deactivate your current displays and return to your first setup once the stream is finished.
-
-- <b>Playnite</b> will allow you to gather all your games from any platform (otherwise downloaded games included) in one launcher for your convenience.
-
-- <b>Playnite Watcher</b> will simply allow you to stop the stream when you close your game. (Sunshine does not support it natively)
-
-- It will also allow you to <b>automatically</b> import all your games into Sunshine with a click.
 
 # Table of Contents
-- [Sunshine Installation](#sunshine-installation)
-- [Virtual Display Driver](#virtual-display-driver)
-- [Sunshine Virtual Monitor](#sunshine-virtual-monitor)
-- [Playnite Installation](#playnite-installation)
-- [Playnite Watcher](#playnite-watcher)
-- [Enjoy](#enjoy)
+- [Python3 Installation](#python3-installation)
+- [Git Installation](#git-installation)
+- [Setup the repository](#setup-the-repository)
+- [Execute the AIO tool](#execute-the-aio-tool)
+- [Update the repository](#update-the-repository)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
 - [Star History](#star-history)
 
-## [Sunshine](https://github.com/LizardByte/Sunshine) Installation
+## Python3 Installation
 
-- Download [Sunshine](https://github.com/LizardByte/Sunshine/releases/latest) and install it on your computer.
-
-  For Windows System, download the file `sunshine-windows-installer.exe`.
-
-To stream remotely, make sure to open these ports in your router settings and redirect them to your PC.
-
-- `TCP`:
-	- 47984
-	- 47989
-	- 47990
-	- 48010
-
-- `UDP`:
-	- 47998
-	- 47999
-	- 48000
+- Download [Latest Python3](https://www.python.org/downloads/) and install it on your computer.
+	
+- Add python to the Path when asked during the installation.
 
 
-## [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)
+## Git Installation
 
-1. Download [Virtual Display Driver (Windows 11 22H2+)](https://github.com/itsmikethetech/Virtual-Display-Driver/releases/latest).
+- Download [Git for Windows](https://git-scm.com/download/win) and install it on your computer.
 
-2. Follow [Installation](https://github.com/itsmikethetech/Virtual-Display-Driver#installation) steps then come back here when done.
+	> Dynamic pull of the repository and all the files on your local computer would be advantageous, as you can receive updates when they are available using the `git pull` command.
 
-3. Disable the new display freshly created from Device Manager or open a privileged terminal and run the command `pnputil /disable-device /deviceid root\iddsampledriver`.
+## Setup the repository
 
-> If you plan to use Moonlight from a Phone, make sure to add the correct resolution of <b>all your clients</b> into the <b>`C:\IddSampleDriver\option.txt`</b> file if they don't exist already.
+- Go in any location you want to put the folder in and open a terminal at this location.
 
+Execute this command :
 
-## [Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)
-
-- Download [Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor/archive/refs/heads/main.zip)
-
-	- Extract the `sunshine-virtual-monitor-main.zip` file to a secure location (if the folder is deleted, the tool will not work anymore) and open it.
-
-In the next steps, you can either choose to follow these quick steps or follow the original steps from [sunshine-virtual-monitor](https://github.com/Cynary/sunshine-virtual-monitor#multi-monitor-tool)
-
-1. Download [MultiMonitorTool for Windows 64-bits](https://www.nirsoft.net/utils/multimonitortool-x64.zip) (<b>Recommended</b>) or [MultiMonitorTool for Windows 32-bits](https://www.nirsoft.net/utils/multimonitortool.zip) (Old computers)
-
-	- Extract the `multimonitortool*.zip` file to `multimonitortool-x64` folder and copy this folder to the `sunshine-virtual-monitor-main` folder.
-
-2. Open a Privileged Powershell by entering your Windows key then type `powershell` and enter `Ctrl + Shift + Enter`.
-
-	- Install the module [WindowsDisplayManager](https://github.com/patrick-theprogrammer/WindowsDisplayManager) by typing the command :
-		```powershell
-		Install-Module -Name WindowsDisplayManager
-		```
-
-	- To enable the script execution you need to set your Execution Policy from `Default` to `RemoteSigned`:
-		```powershell
-		Set-ExecutionPolicy RemoteSigned
-		```
-		> Source: [PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4#powershell-execution-policies)
-
-4. Download [vsync-toggle](https://github.com/xanderfrangos/vsync-toggle/releases/latest) and copy the file to the `sunshine-virtual-monitor-main` folder.
-
-### [Sunshine Setup](https://github.com/Cynary/sunshine-virtual-monitor#sunshine-setup)
-
-Follow the steps in [Sunshine Setup](https://github.com/Cynary/sunshine-virtual-monitor#ui).
-
-<b>(Tip)</b> Copy paste these commands on a PowerShell to get the `config.do_cmd` and `config.undo_cmd` commands written for you:
-
-```powershell
-$folderName = "sunshine-virtual-monitor-main"
-$folderPath = Get-ChildItem -Path "C:\" -Directory -Filter $folderName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-$setupPath = $folderPath.FullName + "\setup_sunvdm.ps1"
-$teardownPath = $folderPath.FullName + "\teardown_sunvdm.ps1"
-$sunvdmLogPath = $folderPath.FullName + "\sunvdm.log"
-Write-Host "$(Clear-Host)config.do_cmd:`n`ncmd /C powershell.exe -File $setupPath %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% > $sunvdmLogPath 2>&1`n`n`n`nconfig.undo_cmd:`n`ncmd /C powershell.exe -File $teardownPath >> $sunvdmLogPath 2>&1`n`n`n`n"
- 
+```batch
+git clone --branch dev-AIO https://github.com/LeGeRyChEeSe/Sunshine-AIO.git
+cd Sunshine-AIO
+py -m venv virtualenv-python-sunshine-aio
+virtualenv-python-sunshine-aio\Scripts\activate.bat
+pip install -r requirements.txt
 ```
 
-<i>If you relocated the sunshine-virtual-monitor-main to a different disk, change the letter of the <b>$folderPath</b> in line 2 to match the new one. For example <b>"D:\\"</b></i>
+### Execute the AIO tool
 
-## [Playnite](https://playnite.link) Installation
+- From the root folder of the repository (Sunshine-AIO), open a terminal and execute this command:
 
-Download [Playnite](https://playnite.link/download/PlayniteInstaller.exe), install it and add all of your games.
+```batch
+src\main.py
+```
 
-## [Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher)
+<b>OR</b>
 
-Download [Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher/releases/latest) and extract it to a secure location.
+```batch
+py src\main.py
+```
 
-Make sure to follow these steps: [PlayNite Watcher Script Guide](https://github.com/Nonary/PlayNiteWatcher#playnite-watcher-script-guide)
+> To execute the script, an elevated UAC prompt will appear and request `admin permission`.
 
-## Enjoy
+- To finish the Playnite Watcher configuration, follow the instructions provided in the script.
 
-Configure your Moonlight client to connect to Sunshine and enjoy optimized streaming :)
+## Update the repository
+
+In order to receive new updates when I push new features, open a terminal and execute this command in the repository's root folder (Sunshine-AIO):
+
+```git
+git pull
+```
+Stay up-to-date !
+
+## Troubleshooting
+
+Please keep in mind this AIO tool is still in development and you may encounter bugs or issues when using it.
+
+I may have also forgotten to implement some functions due to the fact that the script is at its very first version. I didn’t test all the options that the script provides, because I wanted to provide a first version quickly so as to have your feedback and allow to progress faster than on my own. It works for me, but I suspect that it may not work at first for some of you.
+
+Opening an issue at https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new/choose is encouraged to receive initial help and improve the script.
+
+Feel free to ask me any questions, so that I can one day provide the final version of the script to everyone.
+
+Don't forget to configure your Moonlight client to connect to Sunshine and enjoy optimized streaming :)
 
 ## Contributing
 
