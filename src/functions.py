@@ -290,13 +290,13 @@ def downloadPlayniteWatcher(install: bool = True, selective: bool = False):
 	if platform.release() == '11':
 		print("\nPlease set the default terminal to Windows Console Host.")
 		input("Press any key to open the Windows parameters...")
-		subprocess.run(f"start /wait ms-settings:developers", shell=True, check=True)
+		subprocess.run(f"start ms-settings:developers", shell=True, check=True)
 
 	sap = input("\nInstall 'Sunshine App Export' on Playnite ? (Y/n) ")
 	if sap.lower() in ['y', 'ye', 'yes', '']:
-		subprocess.run("start /wait playnite://playnite/installaddon/SunshineAppExport", shell=True)
+		subprocess.run("start playnite://playnite/installaddon/SunshineAppExport", shell=True, check=True)
 	input("\nPress any key to open PlayNite Watcher Setup Guide...")
-	subprocess.run("start https://github.com/Nonary/PlayNiteWatcher#setup-instructions", shell=True)
+	subprocess.run("start /wait https://github.com/Nonary/PlayNiteWatcher#setup-instructions", shell=True)
 
 def copyOption():
 	source_file = findFile(r'tools\VDD.HDR.*\VDD*\\*\\option.txt')
