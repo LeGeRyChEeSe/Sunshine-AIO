@@ -12,8 +12,7 @@
 </a>
 
 <p align="center">
-An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows only at the moment).<br>
-(It's initially just a guide, but as it progresses, it will become more like an AIO tool.)<br>
+An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows only at the moment).<br>A version of the **AIO script** for developers is available. Switch branch from `main` to `dev-AIO` to access it.<br>
 Contributions to this project are welcomed and highly appreciated.
 
 <p align="center">
