@@ -60,13 +60,7 @@ pip install -r requirements.txt
 - From the root folder of the repository (Sunshine-AIO), open a terminal and execute this command:
 
 ```batch
-src\main.py
-```
-
-<b>OR</b>
-
-```batch
-py src\main.py
+virtualenv-python-sunshine-aio\Scripts\python.exe src\main.py
 ```
 
 > To execute the script, an elevated UAC prompt will appear and request `admin permission`.

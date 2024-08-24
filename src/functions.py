@@ -1,13 +1,14 @@
+import os
+import platform
+import sys
 import requests
 import zipfile
-import os
-import sys
 import shutil
 import subprocess
 import glob
 import ctypes
-import platform
 import json
+import re
 
 def logo():
 	logo = r'''
@@ -28,6 +29,9 @@ def menu(page: int = 0):
 		sys.stdout.write('Not running as admin, relaunching...?\n')
 		ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
 		sys.exit()
+
+	checkExecutionPolicy()
+
 	while True:
 		os.system("cls")
 		logo()
@@ -45,7 +49,7 @@ def menu(page: int = 0):
 			print("1. Download EVERYTHING without installing")
 			print("2. Selective Download")
 			print("3. Configure Sunshine (only if you need to reset the preparation commands)")
-			print("4. Enable script execution to your system (REQUIRED)")
+			print("4. Install WindowsDisplayManager (powershell module required)")
 			print("5. Go Back")
 		elif page == 2:
 			print("1. Download Sunshine")
@@ -88,7 +92,7 @@ def menu(page: int = 0):
 			elif choice == '3':
 				configureSunshine()
 			elif choice == '4':
-				enableExecutionPolicyRemoteSigned()
+				installWindowsDisplayManager()
 			elif choice == '5':
 				page -= 1
 		elif page == 2:
@@ -220,7 +224,7 @@ def downloadVDD(install: bool = True, selective: bool = False):
 
 	for command in commands:
 		try:
-			subprocess.run(command, shell=True)
+			subprocess.run(command, shell=True, check=True)
 		except:
 			pass
 
@@ -230,10 +234,10 @@ def downloadSVM(install: bool = True, selective: bool = False):
 	if not install and selective:
 		return
 	
-	enableExecutionPolicyRemoteSigned()
+	installWindowsDisplayManager()
 	downloadMMT(selective)
 	downloadVsyncToggle(selective)
-	configureSunshine()
+	configureSunshine(True)
 
 def downloadMMT(selective: bool = False):
 	downloadFile("https://www.nirsoft.net/utils/multimonitortool-x64.zip", "multimonitortool-x64.zip", selective=selective)
@@ -278,14 +282,15 @@ def downloadPlaynite(install: bool = True, selective: bool = False):
 def downloadPlayniteWatcher(install: bool = True, selective: bool = False):
 	playnite_watcher = downloadFile("https://github.com/Nonary/PlayNiteWatcher/releases/latest", "PlayniteWatcher.zip", from_github=True, selective=selective)
 
-	if not install:
+	if not install and selective:
+		input("\nPress any key to open PlayNite Watcher Setup Guide...")
+		subprocess.run("start https://github.com/Nonary/PlayNiteWatcher#setup-instructions", shell=True)
 		return
 
 	if platform.release() == '11':
-		print("\n\nPlease set the default terminal to Windows Console Host.")
+		print("\nPlease set the default terminal to Windows Console Host.")
 		input("Press any key to open the Windows parameters...")
-		subprocess.run(f"start /wait ms-settings:developers", shell=True)
-		input("\nPress any key after setting the default terminal to Windows Console Host...")
+		subprocess.run(f"start /wait ms-settings:developers", shell=True, check=True)
 
 	sap = input("\nInstall 'Sunshine App Export' on Playnite ? (Y/n) ")
 	if sap.lower() in ['y', 'ye', 'yes', '']:
@@ -317,7 +322,7 @@ def findFile(pattern: str) -> str:
 	if files:
 		return os.path.abspath(files[0])
 
-def configureSunshine():
+def configureSunshine(first_install: bool = False):
 	sunshine_path = 'C:\\Program Files\\Sunshine'
 	svm_path = findFile(r'tools\*\\sunshine-virtual-monitor-main')
 	setup_sunvdm = findFile(r'tools\*\*\\setup_sunvdm.ps1')
@@ -339,27 +344,21 @@ def configureSunshine():
 
 	commands = [
 		{
-			'do': f'cmd /C powershell.exe -File {setup_sunvdm} %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% > {sunvdm_log} 2>&1',
-			'undo': f'cmd /C powershell.exe -File {teardown_sunvdm} >> {sunvdm_log} 2>&1',
+			'do': f'powershell.exe -executionpolicy bypass -windowstyle hidden -file "{setup_sunvdm}" %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% > "{sunvdm_log}" 2>&1',
+			'undo': f'powershell.exe -executionpolicy bypass -windowstyle hidden -file "{teardown_sunvdm}" >> "{sunvdm_log}" 2>&1',
 			'elevated': 'true'
 		}
 	]
 
 	reset_global_prep_cmd(config_file, commands)
 
-def enableExecutionPolicyRemoteSigned():
-	setup_sunvdm = findFile(r'tools\*\*\\setup_sunvdm.ps1')
-	teardown_sunvdm = findFile(r'tools\*\*\teardown_sunvdm.ps1')
+	if not first_install:
+		print("\nSunshine config correctly reset.\nPlaynite Watcher config also erased, please configure it again. (see 2. Selective Download -> 7. Download Playnite Watcher)")
+		os.system('pause')
 
+def installWindowsDisplayManager():
 	if not checkModuleInstalled("WindowsDisplayManager"):
 		subprocess.run(["powershell", "-Command", "Install-Module -Name WindowsDisplayManager"])
-
-	if not checkExecutionPolicy():
-		subprocess.run(["powershell", "-Command", "Set-ExecutionPolicy RemoteSigned"])
-		if setup_sunvdm:
-			subprocess.run(["powershell", "-Command", f"Unblock-File {setup_sunvdm}"])
-		if teardown_sunvdm:
-			subprocess.run(["powershell", "-Command", f"Unblock-File {teardown_sunvdm}"])
 
 def checkModuleInstalled(module_name: str) -> bool:
     command = f"Get-Module -ListAvailable -Name {module_name}"
@@ -377,18 +376,13 @@ def checkModuleInstalled(module_name: str) -> bool:
 
 def checkExecutionPolicy() -> bool:
     command = "Get-ExecutionPolicy"
-    
-    try:
-        result = subprocess.run(["powershell", "-Command", command], capture_output=True, text=True)
 
-        policy = result.stdout.strip()
-        if policy == "RemoteSigned":
-            return True
-        else:
-            return False
+    result = subprocess.run(["powershell", "-Command", command], capture_output=True, text=True)
 
-    except:
-        return False
+    policy = result.stdout.strip()
+    if policy != "Undefined":
+        subprocess.run(["powershell", "-Command", "Set-ExecutionPolicy Undefined"])
+        return True
 
 def reset_global_prep_cmd(file_path, new_commands):
 	if not os.path.exists(file_path):
