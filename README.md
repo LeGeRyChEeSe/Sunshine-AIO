@@ -43,16 +43,16 @@ An all-in-one step-by-step guide to setup Sunshine with all needed tools (Window
 
 ## Setup the repository
 
-- Go in any location you want to put the folder in and open a terminal at this location.
+- Go in any location you want to put the folder in and open a Windows Terminal at this location. <i>(No matter Powershell or CMD)</i>
 
-Execute this command :
+Execute these commands :
 
 ```batch
 git clone --branch dev-AIO https://github.com/LeGeRyChEeSe/Sunshine-AIO.git
 cd Sunshine-AIO
 py -m venv virtualenv-python-sunshine-aio
-virtualenv-python-sunshine-aio\Scripts\activate.bat
-pip install -r requirements.txt
+virtualenv-python-sunshine-aio\Scripts\pip.exe install -r requirements.txt
+
 ```
 
 ### Execute the AIO tool
