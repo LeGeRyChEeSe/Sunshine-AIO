@@ -429,11 +429,13 @@ def configureSunshine(install: bool = True):
 
     checkExecutionPolicy()
 
+    vdd_name = getVddName()
+
     config_file = f"{sunshine_path}\\config\\sunshine.conf"
 
     commands = {
-        'do': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{setup_sunvdm}" %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% > "{sunvdm_log}" 2>&1',
-        'undo': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{teardown_sunvdm}" >> "{sunvdm_log}" 2>&1',
+        'do': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{setup_sunvdm}" %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% "{vdd_name}" > "{sunvdm_log}" 2>&1',
+        'undo': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{teardown_sunvdm}" "{vdd_name}" >> "{sunvdm_log}" 2>&1',
         'elevated': 'true'
     }
 
@@ -577,3 +579,18 @@ def restart_sunshine_as_program(sunshine_executable_path) -> bool:
 
     print("\nSunshine has been successfully restarted.\n")
     return True
+
+
+def getVddName():
+    command = "Get-PnpDevice -Class Display | Select-Object FriendlyName | ConvertTo-Json"
+
+    result = subprocess.run(
+        ["powershell", "-Command", command], capture_output=True, text=True)
+
+    if result.returncode == 0:
+        display_devices = json.loads(result.stdout)
+
+        for device in display_devices:
+            friendly_name: str = device.get('FriendlyName', '')
+            if 'IddSampleDriver' in friendly_name:
+                return friendly_name
