@@ -1,6 +1,6 @@
 <h1 align='center'>Sunshine-AIO</h1>
 <p align="center">
-<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/dev-AIO/ressources/sunshine_aio.jpg?raw=true" align="center" height=205 alt="Sunshine-AIO" />
+<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/dev-AIO/ressources/sunshine_aio.jpg?raw=true" align="center" height=350 alt="Sunshine-AIO" />
 </p>
 <p align="center">
 <img src='https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO', alt='Visitors'/>
@@ -12,21 +12,39 @@
 </a>
 
 <p align="center">
-<b>This AIO tool branch is under development. Bugs can appear.</b><br>
-An all-in-one step-by-step guide to setup Sunshine with all needed tools (Windows x64).<br>
+An all-in-one tool to setup Sunshine with all needed tools (Windows 10/11).<br>
+It includes: Sunshine, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.
+</p>
 
+> [!WARNING]
+> :construction:<b>This Branch is under development. Bugs can appear.</b>:construction:
+
+<h2 align='center'>What is the purpose of installing all of these tools?</h2>
+
+<b>There are several reasons:</b>
+
+- A dedicated display for your game stream will be created by the <b>Virtual Display Driver</b>.
+
+- <b>Sunshine Virtual Monitor</b> will deactivate all your physical monitors and enable the Virtual Display to stream your games.
+
+> [!NOTE]
+> It will <b>automatically</b> adjust the resolution, quality, HDR option, and frame rate of the Virtual Display based on Moonlight client settings.
+
+- <b>Playnite</b> will allow you to gather all your games from any platform in one launcher for your convenience.
+
+- <b>Playnite Watcher</b> stop the stream when the game is closed. (Sunshine does not support it natively)
+
+>[!NOTE]
+> It will import all your games into Sunshine effortlessly.
 
 # Table of Contents
 - [Sunshine-AIO](#sunshine-aio)
-- [Add custom resolutions\\frame rates](#add-custom-resolutionsframe-rates)
+- [Add Custom Resolutions\\Frame Rates](#add-custom-resolutionsframe-rates)
 	- [Option File](#option-file)
 	- [Sunshine Config](#sunshine-config)
 - [Build the project](#build-the-project)
 	- [Python3 Installation](#python3-installation)
 	- [Git Installation](#git-installation)
-	- [Setup the repository](#setup-the-repository)
-	- [Execute the AIO tool](#execute-the-aio-tool)
-	- [Update the repository](#update-the-repository)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -37,27 +55,33 @@ An all-in-one step-by-step guide to setup Sunshine with all needed tools (Window
 ## Sunshine-AIO
 
 - Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
-	
+
+> [!NOTE]	
 > Playnite and Playnite Watcher are optional, but they are installed by default within the `everything` command.
 
 
-## Add custom resolutions\frame rates
+## Add Custom Resolutions\Frame Rates
 
-- You will need to add custom resolutions if your client resolution are [not listed here](https://github.com/itsmikethetech/Virtual-Display-Driver?tab=readme-ov-file#resolutions).
+- You will need to add custom resolutions if your client resolutions are [not listed here](https://github.com/itsmikethetech/Virtual-Display-Driver?tab=readme-ov-file#resolutions).
 
 - After you have executed the script once and installed everything:
 
 
 ### Option File
 
-- Open the `"C:\IddSampleDriver\option.txt"` file and add your custom resolutions/frame rates. (E.g. Mobile Phone/TV/Nintendo Switch/Steam Deck)
-- Make sure to follow the syntax of the file:
+- Open the `"C:\IddSampleDriver\option.txt"` file and add your custom Resolutions/Frame Rates.
 
-	<b>option.txt:</b>
-	```
-	RES_WIDTH, RES_HEIGHT, FRAME RATE
-	```
-- Add as many lines for the same resolution as you want different frame rates.
+> [!TIP]
+> Open the `option.txt` file via Sunshine-AIO from `7. Extra` → `5. Edit Custom Resolutions/Frame Rates (option.txt)`
+
+> [!IMPORTANT]
+> Make sure to follow the syntax of the file:
+>
+>	<b>option.txt:</b>
+>	```
+>	RES_WIDTH, RES_HEIGHT, FRAME_RATE
+>	```
+- Add a line for each frame rate wanted for one resolution.
 - For example:
 
 	<b>option.txt:</b>
@@ -68,9 +92,17 @@ An all-in-one step-by-step guide to setup Sunshine with all needed tools (Window
 	3120, 1440, 120
 	```
 
+> [!WARNING]
+> Make sure the Virtual Display Driver is <b>disabled</b>.
+
+
 ### Sunshine Config
 
 - Open [Sunshine WebUI](https://localhost:47990/config#) and navigate to `Configuration` → `Audio/Video` Tab.
+
+> [!TIP]
+> Open Sunshine Config via Sunshine-AIO from `7. Extra` → `6. Open Sunshine Settings`
+
 - Scroll down and add your custom resolutions and custom frame rates here.
 - Make sure that every resolutions and frame rates are well indicated in the [`"C:\IddSampleDriver\option.txt"`](#option-file) file too.
 
@@ -80,56 +112,21 @@ An all-in-one step-by-step guide to setup Sunshine with all needed tools (Window
 - If you want to contribute to the project and add some features or even fix some issues by yourself, or anything else, you can fork this repository (See [Contributing](#contributing)).
 - You will need some pre-requisites:
 
+
 ### Python3 Installation
 
 - Download [Latest Python3](https://www.python.org/downloads/) and install it on your computer.
-	
-- Add python to the Path when asked during the installation.
+
+>[!IMPORTANT]
+> Add python to the Path when asked during the installation.
 
 
 ### Git Installation
 
 - Download [Git for Windows](https://git-scm.com/download/win) and install it on your computer.
 
-	> Dynamic pull of the repository and all the files on your local computer would be advantageous, as you can receive updates when they are available using the `git pull` command.
-
-
-### Setup the repository
-
-- Go in any location you want to put the folder and open a Windows Terminal at this location. <i>(No matter Powershell or CMD)</i>
-
-Execute these commands :
-
-```batch
-git clone --branch dev-AIO https://github.com/LeGeRyChEeSe/Sunshine-AIO.git
-cd Sunshine-AIO
-py -m venv virtualenv-python-sunshine-aio
-virtualenv-python-sunshine-aio\Scripts\pip.exe install -r requirements.txt
-
-```
-
-
-### Execute the AIO tool
-
-- From the root folder of the repository (Sunshine-AIO), open a terminal and execute this command:
-
-```batch
-virtualenv-python-sunshine-aio\Scripts\python.exe src\main.py
-```
-
-> To execute the script, an elevated UAC prompt will appear and request `admin permission`.
-
-- To finish the Playnite Watcher configuration, follow the instructions provided in the script.
-
-
-### Update the repository
-
-In order to receive new updates when I push new features, open a terminal and execute this command in the repository's root folder (Sunshine-AIO):
-
-```git
-git pull
-```
-Stay up-to-date !
+> [!NOTE]
+> Dynamic pull of the repository and all the files on your local computer would be advantageous, as you can receive updates when they are available using the `git pull` command.
 
 
 ## Troubleshooting
