@@ -1,6 +1,6 @@
 <h1 align='center'>Sunshine-AIO</h1>
 <p align="center">
-<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/dev-AIO/ressources/sunshine_aio.jpg?raw=true" align="center" height=350 alt="Sunshine-AIO" />
+<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/ressources/sunshine_aio.jpg?raw=true" align="center" height=350 alt="Sunshine-AIO" />
 </p>
 <p align="center">
 <img src='https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO', alt='Visitors'/>
@@ -158,7 +158,7 @@ Any contributions you make are **greatly appreciated**.
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/dev-AIO/LICENSE) for more information.
+Distributed under the MIT License. See [LICENSE](https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/LICENSE) for more information.
 
 
 ## Acknowledgements
