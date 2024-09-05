@@ -1,0 +1,34 @@
+[
+	{
+			"1": "Download and Install EVERYTHING",
+			"2": "Download, install and configure Sunshine",
+			"3": "Download and install Virtual Display Driver",
+			"4": "Download and configure Sunshine Virtual Monitor",
+			"5": "Download and install Playnite",
+			"6": "Download and configure Playnite Watcher",
+			"7": "Extra",
+			"0": "Exit"
+	},
+	{
+		"1": "Download EVERYTHING without installing",
+		"2": "Selective Download",
+		"3": "Reset Sunshine Commands Preparation",
+		"4": "Install WindowsDisplayManager (Required PowerShell Module)",
+		"5": "Edit Custom Resolutions/Frame Rates (option.txt)",
+		"6": "Open Sunshine Settings",
+		"7": "Open Playnite",
+		"8": "Go Back",
+		"0": "Exit"
+	},
+	{
+		"1": "Download Sunshine",
+		"2": "Download Virtual Display Driver",
+		"3": "Download Sunshine Virtual Monitor",
+		"4": "Download Multi Monitor Tool",
+		"5": "Download VSYNC Toggle",
+		"6": "Download Playnite",
+		"7": "Download Playnite Watcher",
+		"8": "Go Back",
+		"0": "Exit"
+	}
+]

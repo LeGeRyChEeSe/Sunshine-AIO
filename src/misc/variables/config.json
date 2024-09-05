@@ -1,0 +1,52 @@
+{
+	"Sunshine": {
+		"download_url": "https://github.com/LizardByte/Sunshine/releases/latest",
+		"download_pattern": "sunshine-windows-installer",
+		"downloaded_dir_path": "tools",
+		"install_dir": "C:\\Program Files\\Sunshine",
+		"service": "SunshineService",
+		"settings_url": "https://localhost:47990/config"
+	},
+	"VirtualDisplayDriver": {
+		"download_url_w10": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases",
+		"download_url_w11": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases/latest",
+		"download_pattern_w10": "VDD",
+		"download_pattern_w11": "VDD.HDR",
+		"downloaded_dir_path_w10": "tools\\VDD*",
+		"downloaded_dir_path_w11": "tools\\VDD.HDR*",
+		"device_id": "Root\\IddSampleDriver"
+	},
+	"Nefcon": {
+		"download_url": "https://github.com/nefarius/nefcon/releases/latest",
+		"download_pattern": "nefcon",
+		"downloaded_dir_path": "tools\\nefcon*\\x64"
+	},
+	"SunshineVirtualMonitor": {
+		"download_url": "https://github.com/LeGeRyChEeSe/sunshine-virtual-monitor/archive/refs/heads/main.zip",
+		"download_pattern": "sunshine-virtual-monitor-main.zip",
+		"downloaded_dir_path": "tools\\sunshine-virtual-monitor-main"
+	},
+	"MultiMonitorTool": {
+		"download_url": "https://www.nirsoft.net/utils/multimonitortool-x64.zip",
+		"download_pattern": "multimonitortool-x64.zip",
+		"downloaded_dir_path": "tools\\multimonitortool-x64"
+	},
+	"VsyncToggle": {
+		"download_url": "https://github.com/xanderfrangos/vsync-toggle/releases/latest",
+		"download_pattern": "vsynctoggle",
+		"downloaded_dir_path": "tools"
+	},
+	"Playnite": {
+		"download_url": "https://playnite.link/download/PlayniteInstaller.exe",
+		"download_pattern": "PlayniteInstaller.exe",
+		"downloaded_dir_path": "tools",
+		"url": "playnite:"
+	},
+	"PlayniteWatcher": {
+		"download_url": "https://github.com/Nonary/PlayNiteWatcher/releases/latest",
+		"download_pattern": "PlayniteWatcher.zip",
+		"downloaded_dir_path": "tools",
+		"guide_url": "https://github.com/Nonary/PlayNiteWatcher#setup-instructions",
+		"addon_url": "playnite://playnite/installaddon/SunshineAppExport"
+	}
+}

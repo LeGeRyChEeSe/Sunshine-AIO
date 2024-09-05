@@ -1,0 +1,17 @@
+**/__pycache__
+virtualenv-python-sunshine-aio
+venv
+tools
+dist
+build
+**.spec
+**.ico
+version.txt
+.env
+*build
+*dist
+*.bat
+*.iss
+release.py
+*.exe
+Output
