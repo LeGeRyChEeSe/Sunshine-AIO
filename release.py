@@ -5,7 +5,7 @@ from dotenv import dotenv_values
 from src.misc import __version__ as version
 
 
-branch = 'dev-AIO'
+branch = 'main'
 files_to_upload = {
     'Sunshine-AIO.exe': 'Output\\Sunshine-AIO.exe',
     # 'Sunshine-AIO-installer.exe': 'Output/Sunshine-AIO-installer.exe' # Development in progress...
