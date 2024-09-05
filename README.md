@@ -56,6 +56,11 @@ It includes: Sunshine, Virtual Display Driver, Sunshine Virtual Monitor, Playnit
 
 - Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
 
+> [!WARNING]
+> The file might be flagged as Trojan/Malware, but it's a false positive. (It is due to **Nuitka** build)
+>
+> To prevent the file being deleted by your anti-virus, make sure to temporarily disable your anti-virus, or add an exception to the folder you want to download the file.
+
 > [!NOTE]	
 > Playnite and Playnite Watcher are optional, but they are installed by default within the `everything` command.
 
