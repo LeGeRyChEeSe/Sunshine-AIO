@@ -22,7 +22,7 @@
 		"downloaded_dir_path": "tools\\nefcon*\\x64"
 	},
 	"SunshineVirtualMonitor": {
-		"download_url": "https://github.com/LeGeRyChEeSe/sunshine-virtual-monitor/archive/refs/heads/main.zip",
+		"download_url": "https://github.com/Cynary/sunshine-virtual-monitor/archive/refs/heads/main.zip",
 		"download_pattern": "sunshine-virtual-monitor-main.zip",
 		"downloaded_dir_path": "tools\\sunshine-virtual-monitor-main"
 	},

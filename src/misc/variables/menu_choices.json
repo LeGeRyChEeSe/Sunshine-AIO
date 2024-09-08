@@ -12,12 +12,11 @@
 	{
 		"1": "Download EVERYTHING without installing",
 		"2": "Selective Download",
-		"3": "Reset Sunshine Commands Preparation",
+		"3": "Configure Sunshine",
 		"4": "Install WindowsDisplayManager (Required PowerShell Module)",
-		"5": "Edit Custom Resolutions/Frame Rates (option.txt)",
-		"6": "Open Sunshine Settings",
-		"7": "Open Playnite",
-		"8": "Go Back",
+		"5": "Open Sunshine Settings",
+		"6": "Open Playnite",
+		"7": "Go Back",
 		"0": "Exit"
 	},
 	{

@@ -45,12 +45,11 @@ class MenuHandler:
             {
                 "1": lambda: self._dm.download_all(install=False),
                 "2": self._next_page,
-                "3": self._config.configure_sunshine,
+                "3": lambda: self._config.configure_sunshine(selective=True),
                 "4": lambda: self._sr.install_windows_display_manager(selective=True),
-                "5": self._sr.open_option_file,
-                "6": self._config.open_sunshine_settings,
-                "7": self._config.open_playnite,
-                "8": self._previous_page,
+                "5": self._config.open_sunshine_settings,
+                "6": self._config.open_playnite,
+                "7": self._previous_page,
                 "0": sys.exit
             },
             {

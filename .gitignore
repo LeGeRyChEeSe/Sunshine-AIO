@@ -5,12 +5,9 @@ tools
 dist
 build
 **.spec
-**.ico
 version.txt
 .env
-*build
-*dist
-*.bat
+produced
 *.iss
 release.py
 *.exe

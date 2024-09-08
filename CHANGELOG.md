@@ -1,41 +1,24 @@
 # Changelog
 
 
-## v0.1.1-dev (04 September 2024)
+## v0.2.0-dev (08 September 2024)
+- :partying_face: **Big Update !** The AIO tool get stronger with a new cool feature. See below.
 - Bugs may appear. Please [open an issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new) if you have one.
 - Tool still under development.
 
 ### Added
-- Shortcut to `option.txt` file to add custom resolutions/frame rates (See `7.` → `5.`)
-- Shortcut to Sunshine Settings. (See `7.` → `6.`)
-- Shortcut to Playnite. (See `7.` → `7.`)
+- Compiler script for paranoïac users. (The release contains no viruses but it's flagged as is in VirusTotal)
+- :partying_face: **New awesome feature:** Full automatic resolution/frame rate settings from Moonlight to Virtual Display Driver without Human Intervention needed.
 
 ### Changed
-- Complete restructuration.
-- Code optimization. (Still optimization to be done)
-- Added a parameter to Sunshine Virtual Monitor command preps in Sunshine Settings for the Virtual Display Driver.
+- No more need to manually add resolutions and frame rates in the `option.txt` file.
+    - It implies that no `option.txt` will be created at installation with this tool. It will create it and add specific resolutions/frame rates only when you start the stream.
+    - The `option.txt` will now only contain **your** resolutions/frame rates.
+- Removed the useless parameter `VDD_NAME` in `do_cmd` and `undo_cmd` command preps as it is now **fully auto** retrieved by the Sunshine Virtual Monitor script.
+- Sunshine Virtual Monitor repository switched back to the original one.
+- No more check for execution policy and no more changes for global policies. It uses a local policy that scope only the current process.
 
 ### Fixed
-- Virtual Display Driver installation for Windows 10 and other issues. ([#4](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/4))
-- Sunshine Virtual Monitor repository switched for my repo. It fixes the Windows 10 issue with Virtual Display Driver.
-
-
-## v0.1.0-dev (28 August 2024)
-- First release of the Sunshine-AIO tool.
-- Bugs may appear. Please [open an issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new) if you have one.
-- Tool still under development.
-
-### Added
-- [Sunshine](https://github.com/LizardByte/Sunshine) auto-install and setup.
-- [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver) auto-install.
-- [Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor) auto-install and setup.
-- [Playnite](https://playnite.link) auto-install.
-- [Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher) `partial` auto-install. See [PlayNite Watcher Script Guide](https://github.com/Nonary/PlayNiteWatcher#playnite-watcher-script-guide) after executing the auto-install.
-
-### Changed
-- File tree restructuring.
-
-### Fixed
-- Virtual Display Driver installation.
-- Sunshine Virtual Monitor installation.
-- Execution Policy/Unblock Files for Sunshine Virtual Monitor scripts.
+- A more robust way to work with powershell commands should have fixed some path issues. (Didn't tested all the possibilities)
+- HDR is now fully working again! (I broke it up on a previous release and didn't realize then)
+- Small issues are also fixed with this release.
