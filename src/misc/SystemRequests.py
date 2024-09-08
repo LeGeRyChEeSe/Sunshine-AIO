@@ -107,12 +107,12 @@ class SystemRequests():
             print(f"Error with admin verification: {e}")
         else:
             if not is_admin:
-                print('Starting as an admin...\n')
+                print('Starting as an admin...')
                 try:
                     ctypes.windll.shell32.ShellExecuteW(
                         None, "runas", sys.executable, " ".join(sys.argv), None, 1)
                 except Exception as e:
-                    print(f"Error when starting as admin: {e}")
+                    print(f"\nError when starting as admin: {e}")
                 sys.exit()
 
     def extract_file(self, zip_file: str):
@@ -152,7 +152,7 @@ class SystemRequests():
             print(f"\nError during the start of service {service_name}: {e}")
             return False
 
-        print(f"\n{service_name} has been successfully restarted.\n")
+        print(f"\n{service_name} has been successfully restarted.")
         return True
 
     def restart_sunshine_as_program(self, sunshine_executable_path) -> bool:
@@ -175,54 +175,15 @@ class SystemRequests():
             print(f"\nError when starting Sunshine: {e}")
             return False
 
-        print("\nSunshine has been successfully restarted.\n")
+        print("\nSunshine has been successfully restarted.")
         return True
-
-    def copy_option_file(self):
-        vdd = self.all_configs["VirtualDisplayDriver"]
-        vdd_downloaded_dir_path = self.find_file(vdd[f"downloaded_dir_path_w{self._release}"])
-
-        if not vdd_downloaded_dir_path:
-            print("\nPlease download Virtual Display Driver first.")
-            return False
-
-        vdd_option_path = os.path.join(vdd_downloaded_dir_path, "option.txt")
-        destination_file = "C:\\IddSampleDriver\\option.txt"
-
-        os.makedirs("C:\\IddSampleDriver", exist_ok=True)
-
-        if vdd_option_path and not os.path.exists(destination_file):
-            print(f"\nCopy {vdd_option_path} to {destination_file}")
-            shutil.copy(vdd_option_path, destination_file)
-
-        return True
-
-    def open_option_file(self):
-        option_file_path = "C:\\IddSampleDriver\\option.txt"
-        if not os.path.exists(option_file_path):
-            print(f"\nCreating '{option_file_path}' file...")
-            if not self.copy_option_file():
-                print(f"\nFailed to create '{option_file_path}' file.")
-                self.pause()
-                return
-
-        print(f"\nOpening '{option_file_path}' file...")
-        print("\nAdd your custom Resolutions and Frame Rates in there.")
-        print("\nFormat is: RES_WIDTH, RES_HEIGHT, FRAME_RATE")
-        subprocess.run(
-            ['notepad.exe', 'C:\\IddSampleDriver\\option.txt'], check=True)
-        print("\n'C:\\IddSampleDriver\\option.txt' edited.")
-        print(
-            "\nAdd your custom Resolutions and Frame Rates also in Sunshine Config. (See 6.)")
-        print("\nMake sure to disable the Virtual Display Driver in the device manager before streaming games.")
-        self.pause()
 
     def install_cert(self, install: bool = True):
         if not install:
             return
 
         batch_file_path = self.find_file(
-            r'tools\VDD.HDR.*\*\\InstallCert.bat')
+            r'tools\VDD*\InstallCert.bat')
 
         if batch_file_path:
             print("\nInstalling Virtual Display Driver certificat...")
@@ -232,24 +193,31 @@ class SystemRequests():
 
         print("\nVirtual Display Driver certificat installed.")
 
-    def check_execution_policy(self) -> bool:
-        command = "Get-ExecutionPolicy"
-
-        result = subprocess.run(
-            ["powershell.exe", "-Command", command], capture_output=True, text=True)
-
-        policy = result.stdout.strip()
-        if policy != "Undefined":
-            subprocess.run(["powershell.exe", "-Command",
-                            "Set-ExecutionPolicy Undefined"])
-            return True
-        return False
-
-    def find_file(self, pattern: str) -> Optional[str]:
+    def find_file(self, pattern: str) -> str:
         files = glob.glob(os.path.abspath(pattern))
 
         if files:
             return os.path.abspath(files[0])
+        return ""
+
+    def find_word_in_file(self, file_path: str, search_terms: list):
+        global_prep_cmd = []
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
+
+        for line in lines:
+            if line.startswith("global_prep_cmd ="):
+                try:
+                    global_prep_cmd: list[dict[str, str]] = json.loads(line.split('=', 1)[1].strip())
+                except json.JSONDecodeError as e:
+                    print(f"JSON decoding error : {e}")
+                    return
+                break
+
+        for term in search_terms:
+            for prep_cmd in global_prep_cmd:
+                if term in prep_cmd['do']:
+                    return term
 
     def install_windows_display_manager(self, selective: bool = False):
         if not self._check_module_installed():

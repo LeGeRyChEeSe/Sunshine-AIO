@@ -13,40 +13,42 @@
 
 <p align="center">
 An all-in-one tool to setup Sunshine with all needed tools (Windows 10/11).<br>
-It includes: Sunshine, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.
+It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.
 </p>
 
 > [!WARNING]
-> :construction:<b>This Branch is under development. Bugs can appear.</b>:construction:
+> :construction: <b>This Tool is under development. Bugs can appear.</b> :construction:
 
-<h2 align='center'>What is the purpose of installing all of these tools?</h2>
+<h2 align='center'>Current/Upcoming Features</h2>
 
-<b>There are several reasons:</b>
-
-- A dedicated display for your game stream will be created by the <b>Virtual Display Driver</b>.
-
-- <b>Sunshine Virtual Monitor</b> will deactivate all your physical monitors and enable the Virtual Display to stream your games.
-
+- [x] <b>(Official) [Sunshine](https://github.com/LizardByte/Sunshine) Installation</b>
+- [x] <b>[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)</b>
+    - A dedicated display for your game stream will be created.
 > [!NOTE]
-> It will <b>automatically</b> adjust the resolution, quality, HDR option, and frame rate of the Virtual Display based on Moonlight client settings.
-
-- <b>Playnite</b> will allow you to gather all your games from any platform in one launcher for your convenience.
-
-- <b>Playnite Watcher</b> stop the stream when the game is closed. (Sunshine does not support it natively)
-
->[!NOTE]
-> It will import all your games into Sunshine effortlessly.
+> No need to copy the file `option.txt` anymore to set the correct resolution/frame rate.
+>
+> The process is now **automatic** and done directly by the **Sunshine Virtual Monitor** tool.
+- [x] <b>[Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)</b>
+    - An <b>automated</b> script to:
+        1. Automatically adjust the <b>Resolution</b>, <b>HDR</b>, and <b>Frame Rate</b> of the Virtual Display based on Moonlight client settings.
+        2. <b>Deactivate</b> all your physical monitors and <b>enable</b> the dedicated Virtual Display to stream your games.
+- [x] <b>[Playnite](https://github.com/JosefNemec/Playnite)</b>
+    - A <b>Universal Launcher</b> to launch all your favorites games from one place.
+- [x] <b>[Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher)</b>
+    - An <b>automated</b> script to:
+        1. <b>Import</b> all your favorite games into Sunshine effortlessly.
+        2. <b>Gracefully</b> stop the stream when you close a game.
+- [ ] *Have more flexibility with Sunshine Virtual Monitor to manage different setups.* [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
+- [ ] *Automate the Playnite Watcher script/Add an option to execute it from the AIO tool.*
+- [ ] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
 
 # Table of Contents
 - [Sunshine-AIO](#sunshine-aio)
-- [Add Custom Resolutions\\Frame Rates](#add-custom-resolutionsframe-rates)
-	- [Option File](#option-file)
-	- [Sunshine Config](#sunshine-config)
-- [Build the project](#build-the-project)
-	- [Python3 Installation](#python3-installation)
-	- [Git Installation](#git-installation)
 - [Troubleshooting](#troubleshooting)
+- [Build The Executable](#build-the-executable)
 - [Contributing](#contributing)
+	- [Git Installation](#git-installation)
+	- [Python3 Installation](#python3-installation)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
 - [Star History](#star-history)
@@ -65,86 +67,40 @@ It includes: Sunshine, Virtual Display Driver, Sunshine Virtual Monitor, Playnit
 > Playnite and Playnite Watcher are optional, but they are installed by default within the `everything` command.
 
 
-## Add Custom Resolutions\Frame Rates
-
-- You will need to add custom resolutions if your client resolutions are [not listed here](https://github.com/itsmikethetech/Virtual-Display-Driver?tab=readme-ov-file#resolutions).
-
-- After you have executed the script once and installed everything:
-
-
-### Option File
-
-- Open the `"C:\IddSampleDriver\option.txt"` file and add your custom Resolutions/Frame Rates.
-
-> [!TIP]
-> Open the `option.txt` file via Sunshine-AIO from `7. Extra` → `5. Edit Custom Resolutions/Frame Rates (option.txt)`
-
-> [!IMPORTANT]
-> Make sure to follow the syntax of the file:
->
->	<b>option.txt:</b>
->	```
->	RES_WIDTH, RES_HEIGHT, FRAME_RATE
->	```
-- Add a line for each frame rate wanted for one resolution.
-- For example:
-
-	<b>option.txt:</b>
-	```
-	(...)
-	3120, 1440, 60
-	3120, 1440, 90
-	3120, 1440, 120
-	```
-
-> [!WARNING]
-> Make sure the Virtual Display Driver is <b>disabled</b>.
-
-
-### Sunshine Config
-
-- Open [Sunshine WebUI](https://localhost:47990/config#) and navigate to `Configuration` → `Audio/Video` Tab.
-
-> [!TIP]
-> Open Sunshine Config via Sunshine-AIO from `7. Extra` → `6. Open Sunshine Settings`
-
-- Scroll down and add your custom resolutions and custom frame rates here.
-- Make sure that every resolutions and frame rates are well indicated in the [`"C:\IddSampleDriver\option.txt"`](#option-file) file too.
-
-
-## Build the Project
-
-- If you want to contribute to the project and add some features or even fix some issues by yourself, or anything else, you can fork this repository (See [Contributing](#contributing)).
-- You will need some pre-requisites:
-
-
-### Python3 Installation
-
-- Download [Latest Python3](https://www.python.org/downloads/) and install it on your computer.
-
->[!IMPORTANT]
-> Add python to the Path when asked during the installation.
-
-
-### Git Installation
-
-- Download [Git for Windows](https://git-scm.com/download/win) and install it on your computer.
-
-> [!NOTE]
-> Dynamic pull of the repository and all the files on your local computer would be advantageous, as you can receive updates when they are available using the `git pull` command.
-
-
 ## Troubleshooting
 
-Please keep in mind this AIO tool is still in development and you may encounter bugs or issues when using it.
+> [!CAUTION]
+> Please keep in mind this AIO tool is still in development and you may encounter bugs or issues when using it.
+>
+> Some features mentioned in the first lines of this readme aren't yet implemented such as *clean uninstaller* feature.
+>
+> I'm working on it but it could take some times to implement.
 
-I may have also forgotten to implement some functions due to the fact that the script is at its very first version. I didn’t test all the options that the script provides, because I wanted to provide a first version quickly so as to have your feedback and allow to progress faster than on my own. It works for me, but I suspect that it may not work at first for some of you.
+Please check the [opened issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) before opening a new issue.
 
-Opening an issue at https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new/choose is encouraged to receive initial help and improve the script.
+Make sure to configure your Moonlight client to connect to Sunshine and enjoy optimized streaming! 🌞
 
-Feel free to ask me any questions, so that I can one day provide the final version of the script to everyone.
 
-Don't forget to configure your Moonlight client to connect to Sunshine and enjoy optimized streaming :)
+## Build The Executable
+
+- If you are afraid of the potential viruses in the `Sunshine-AIO.exe` (I 100% certify there are no viruses), you can build the executable yourself from this repo.
+
+- Clone the repo with the `git clone https://github.com/LeGeRyChEeSe/Sunshine-AIO.git` command somewhere in a safe location and execute these commands:
+
+> [!WARNING]
+> Before trying to build the executable, make sure you have [Python](#python3-installation) and [Git](#git-installation) installed.
+
+```batch
+cd Sunshine-AIO
+py -m venv venv
+venv\Script\activate
+pip install -r requirements
+cd compile
+compile_executable.bat
+
+```
+
+- The executable should then appear in the `produced` folder next to the `compile_executable.bat` file.
 
 
 ## Contributing
@@ -157,8 +113,31 @@ Any contributions you make are **greatly appreciated**.
 4. Push to the Branch. (`git push origin feature/NewFeature`)
 5. Open a Pull Request.
 
-
 <i>Thanks to every [contributors](https://github.com/LeGeRyChEeSe/Sunshine-AIO/graphs/contributors) who have contributed in this project.</i>
+
+- You will need some pre-requisites:
+
+
+### Git Installation
+
+- Download [Git for Windows](https://git-scm.com/download/win) and install it on your computer.
+
+
+### Python3 Installation
+
+- Download [Latest Python3](https://www.python.org/downloads/) and install it on your computer.
+
+>[!IMPORTANT]
+> Add python to the Path when asked during the installation.
+
+- Install all the packages required to build the project:
+```py
+cd Sunshine-AIO
+py -m venv venv
+venv\Script\activate
+pip install -r requirements
+
+```
 
 
 ## License

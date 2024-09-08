@@ -11,6 +11,7 @@ class Config:
     def __init__(self, system_requests: SystemRequests) -> None:
         self._sr = system_requests
         self._release = self._sr.release
+        self.vdd_friendly_name = ''
 
     @property
     def sr(self):
@@ -28,11 +29,45 @@ class Config:
     def release(self):
         raise ValueError("No manual edit allowed.")
 
-    def _reset_global_prep_cmd(self, file_path: str, new_commands: dict[str, str]):
-        if not os.path.exists(file_path):
+    def _reset_global_prep_cmd(self, config_file: str = '', setup_sunvdm: str = '', teardown_sunvdm: str = '', sunvdm_log: str = ''):
+        sunshine_install_dir = self._sr.all_configs["Sunshine"]["install_dir"]
+
+        svm = self._sr.all_configs["SunshineVirtualMonitor"]
+        svm_downloaded_dir_path = os.path.abspath(svm["downloaded_dir_path"])
+
+        if not os.path.exists(sunshine_install_dir):
+            raise OSError("Sunshine is not installed.")
+        if not os.path.exists(svm_downloaded_dir_path):
+            raise OSError("Sunshine Virtual Monitor is not downloaded.")
+
+        if setup_sunvdm == '':
+            setup_sunvdm = self._sr.find_file(os.path.join(
+                svm_downloaded_dir_path, "setup_sunvdm.ps1"))
+
+        if teardown_sunvdm == '':
+            teardown_sunvdm = self._sr.find_file(os.path.join(
+                svm_downloaded_dir_path, "teardown_sunvdm.ps1"))
+
+        if sunvdm_log == '':
+            sunvdm_log = os.path.join(svm_downloaded_dir_path, "sunvdm.log")
+
+        subprocess.run(["powershell.exe", "-Command",
+                        "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass"])
+        if setup_sunvdm and os.path.exists(setup_sunvdm):
+            subprocess.run(["powershell.exe", "-Command", f"Unblock-File {setup_sunvdm}"])
+        if teardown_sunvdm and os.path.exists(teardown_sunvdm):
+            subprocess.run(["powershell.exe", "-Command", f"Unblock-File {teardown_sunvdm}"])
+
+        if self.vdd_friendly_name == '':
+            self.vdd_friendly_name = self._get_vdd_friendly_name()
+
+        if config_file == '':
+            config_file = self._sr.find_file(os.path.join(
+                sunshine_install_dir, "config", "sunshine.conf"))
+        if not os.path.exists(config_file):
             return
 
-        with open(file_path, 'r') as file:
+        with open(config_file, 'r') as file:
             lines = file.readlines()
 
         global_prep_cmd = []
@@ -41,11 +76,17 @@ class Config:
                 try:
                     global_prep_cmd: list[dict[str, str]] = json.loads(line.split('=', 1)[1].strip())
                 except json.JSONDecodeError as e:
-                    print(f"Erreur de décodage JSON : {e}")
+                    print(f"JSON decoding error : {e}")
                     return
                 break
 
         updated = False
+
+        new_commands = {
+            'do': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{setup_sunvdm}" %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% > "{sunvdm_log}" 2>&1',
+            'undo': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{teardown_sunvdm}" >> "{sunvdm_log}" 2>&1',
+            'elevated': 'true'
+        }
 
         for existing_cmd in global_prep_cmd:
             if existing_cmd['do'].startswith(new_commands['do'].split('"')[0].strip()):
@@ -57,7 +98,7 @@ class Config:
 
         global_prep_cmd_str = json.dumps(global_prep_cmd)
 
-        with open(file_path, 'w') as file:
+        with open(config_file, 'w') as file:
             for line in lines:
                 if not line.startswith("global_prep_cmd ="):
                     file.write(line)
@@ -65,66 +106,26 @@ class Config:
             file.write(f'global_prep_cmd = {global_prep_cmd_str}\n')
 
     def _get_vdd_friendly_name(self):
-        command = "Get-PnpDevice -Class Display | Select-Object FriendlyName | ConvertTo-Json"
+        #command = "(Get-PnpDevice -Class Display | Where-Object {$_.FriendlyName -like '*idd*' -or $_.FriendlyName -like '*mtt*'}).FriendlyName -replace '\s+', ''"
+        result = subprocess.run(["powershell.exe", "-Command", "(Get-PnpDevice", "-Class", "Display", "|", "Where-Object",
+                                 "{$_.FriendlyName", "-like", "'*idd*'", "-or", "$_.FriendlyName", "-like", "'*mtt*'}).FriendlyName"], capture_output=True, text=True)
+        if result.returncode != 0:
+            return result.stderr
+        return result.stdout.strip()
 
-        for _ in range(100):
-            result = subprocess.run(f"powershell -Command \"{command}\"", capture_output=True, text=True)
-
-            if result.returncode == 0:
-                display_devices = json.loads(result.stdout)
-
-                for device in display_devices:
-                    friendly_name: str = device.get('FriendlyName', '')
-                    if friendly_name != None:
-                        if 'IddSampleDriver' in friendly_name or 'by MTT' in friendly_name:
-                            return friendly_name
-
-    def configure_sunshine(self):
+    def configure_sunshine(self, selective: bool = False):
         sunshine_install_dir = self._sr.all_configs["Sunshine"]["install_dir"]
         sunshine_service = self._sr.all_configs["Sunshine"]["service"]
 
-        svm = self._sr.all_configs["SunshineVirtualMonitor"]
-        svm_downloaded_dir_path = os.path.abspath(svm["downloaded_dir_path"])
-
-        if not os.path.exists(sunshine_install_dir):
-            raise OSError("Sunshine is not installed.")
-        if not os.path.exists(svm_downloaded_dir_path):
-            raise OSError("Sunshine Virtual Monitor is not downloaded.")
-
-        setup_sunvdm = self._sr.find_file(os.path.join(
-            svm_downloaded_dir_path, "setup_sunvdm.ps1"))
-        teardown_sunvdm = self._sr.find_file(os.path.join(
-            svm_downloaded_dir_path, "teardown_sunvdm.ps1"))
-        sunvdm_log = os.path.join(svm_downloaded_dir_path, "sunvdm.log")
-
-        subprocess.run(["powershell.exe", "-Command",
-                        "Set-ExecutionPolicy RemoteSigned"])
-        if setup_sunvdm and os.path.exists(setup_sunvdm):
-            subprocess.run(["powershell.exe", "-Command", f"Unblock-File {setup_sunvdm}"])
-        if teardown_sunvdm and os.path.exists(teardown_sunvdm):
-            subprocess.run(["powershell.exe", "-Command", f"Unblock-File {teardown_sunvdm}"])
-
-        self._sr.check_execution_policy()
-
-        vdd_friendly_name = self._get_vdd_friendly_name()
-
-        config_file = self._sr.find_file(os.path.join(
-            sunshine_install_dir, "config", "sunshine.conf"))
-
-        commands = {
-            'do': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{setup_sunvdm}" %SUNSHINE_CLIENT_WIDTH% %SUNSHINE_CLIENT_HEIGHT% %SUNSHINE_CLIENT_FPS% %SUNSHINE_CLIENT_HDR% "{vdd_friendly_name}" > "{sunvdm_log}" 2>&1',
-            'undo': f'cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "{teardown_sunvdm}" "{vdd_friendly_name}" >> "{sunvdm_log}" 2>&1',
-            'elevated': 'true'
-        }
-
-        if config_file:
-            self._reset_global_prep_cmd(config_file, commands)
+        self._reset_global_prep_cmd()
 
         if not self._sr.restart_sunshine_as_service(sunshine_service):
             if not self._sr.restart_sunshine_as_program(self._sr.find_file(os.path.join(sunshine_install_dir, "sunshine.exe"))):
-                print("Please manually restart Sunshine to apply changes.")
+                print("\nPlease manually restart Sunshine to apply changes.")
 
-        print("Sunshine Commands Preparation was successfully configured.")
+        print("\nSunshine was successfully configured.")
+        if selective:
+            self._sr.pause()
 
     def open_sunshine_settings(self):
         sunshine_settings_url = self._sr.all_configs["Sunshine"]["settings_url"]
@@ -238,9 +239,6 @@ class DownloadManager:
 
         if install:
             print("\nAll the files have been downloaded and installed correctly.")
-            print(
-                "\nAdd your custom resolutions/frame rates to \"C:\\IddSampleDriver\\option.txt\" (See 7. → 5.)")
-            print("\nAdd your custom resolutions in Sunshine Settings. (See 7. → 6.)")
         else:
             print(
                 "\nAll the files have been correctly downloaded into the \"tools\" folder.")
@@ -261,7 +259,8 @@ class DownloadManager:
             os.path.join(sunshine_downloaded_dir_path, r"sunshine*.exe"))
 
         if sunshine_downloaded_file_path and install:
-            subprocess.run(f"start /wait {os.path.abspath(sunshine_downloaded_file_path)}", shell=True, check=True)
+            subprocess.run(
+                ["start", "/wait", os.path.abspath(sunshine_downloaded_file_path)], shell=True, check=True)
 
         if install and selective:
             svm_downloaded_dir_path = os.path.abspath(
@@ -313,7 +312,6 @@ class DownloadManager:
         inf_file_path = self._sr.find_file(os.path.join(
             vdd_downloaded_dir_path, "IddSampleDriver.inf"))
 
-        self._sr.copy_option_file()
         self._sr.install_cert(install)
 
         commands = [
@@ -331,12 +329,11 @@ class DownloadManager:
             except subprocess.SubprocessError as e:
                 print(e)
 
-        vdd_friendly_name = self._config._get_vdd_friendly_name()
-        subprocess.run(f"powershell.exe -Command \"Get-PnpDevice -FriendlyName '{vdd_friendly_name}' | Disable-PnpDevice -Confirm: $false\"", shell=True, check=True)
+        self.vdd_friendly_name = self._config._get_vdd_friendly_name()
+        subprocess.run(["powershell.exe", "-Command", "'Get-PnpDevice", "-FriendlyName",
+                        self.vdd_friendly_name, "|", "Disable-PnpDevice", "-Confirm:", "$false'"], check=True)
 
         print("\nVirtual Display Driver Installed.")
-        print("\nAdd your custom resolutions/frame rates to \"C:\\IddSampleDriver\\option.txt\" (See 7. → 5.)")
-        print("\nAdd your custom resolutions in Sunshine Settings. (See 7. → 6.)")
 
         if selective:
             self._sr.pause()
@@ -425,7 +422,8 @@ class DownloadManager:
             os.path.join(playnite_downloaded_dir_path, playnite_download_pattern))
 
         if playnite_downloaded_file_path:
-            subprocess.run(f"start /wait {os.path.abspath(playnite_downloaded_file_path)}", shell=True, check=True)
+            subprocess.run(
+                ["start", "/wait", os.path.abspath(playnite_downloaded_file_path)], shell=True, check=True)
         print("\nPlaynite was successfully installed.")
 
         if selective:
@@ -445,30 +443,29 @@ class DownloadManager:
             playnitew_guide = input(
                 "\nOpen PlayNite Watcher Setup Guide ? (Y/n) ")
 
-            if playnitew_guide.lower().strip() in ['y', 'ye', 'yes', '']:
-                subprocess.run(
-                    f"start {playnitew_guide_url}", shell=True)
+            if playnitew_guide.strip().lower() in ['y', 'ye', 'yes', '']:
+                subprocess.run(["start", playnitew_guide_url], shell=True)
             self._sr.pause()
             return
 
         if self.config.release == '11':
             windows_settings = input(
                 "\nPlease set the default terminal to Windows Console Host. Open Windows Settings ? (Y/n) ")
-            if windows_settings.lower().strip() in ['y', 'ye', 'yes', '']:
-                subprocess.run(f"start ms-settings:developers", shell=True, check=True)
+            if windows_settings.strip().lower() in ['y', 'ye', 'yes', '']:
+                subprocess.run(
+                    ["start", "ms-settings:developers"], shell=True, check=True)
 
         sap = input("\nInstall 'Sunshine App Export' on Playnite ? (Y/n) ")
 
-        if sap.lower().strip() in ['y', 'ye', 'yes', '']:
-            subprocess.run(
-                f"start {playnitew_addon_url}", shell=True, check=True)
+        if sap.strip().lower() in ['y', 'ye', 'yes', '']:
+            subprocess.run(["start", playnitew_addon_url],
+                           shell=True, check=True)
 
         playnitew_guide = input(
             "\nOpen PlayNite Watcher Setup Guide ? (Y/n) ")
 
-        if playnitew_guide.lower().strip() in ['y', 'ye', 'yes', '']:
-            subprocess.run(
-                f"start {playnitew_guide_url}", shell=True)
+        if playnitew_guide.strip().lower() in ['y', 'ye', 'yes', '']:
+            subprocess.run(["start", playnitew_guide_url], shell=True)
 
         print("\nPlaynite Watcher was successfully installed.")
 
