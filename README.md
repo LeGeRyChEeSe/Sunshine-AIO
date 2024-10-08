@@ -94,8 +94,8 @@ Make sure to configure your Moonlight client to connect to Sunshine and enjoy op
 cd Sunshine-AIO
 py -m venv venv
 venv\Script\activate
-pip install -r requirements
-cd compile
+pip install -r requirements.txt
+cd compiler
 compile_executable.bat
 
 ```
