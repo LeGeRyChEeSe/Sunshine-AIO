@@ -24,6 +24,11 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
 - [x] <b>(Official) [Sunshine](https://github.com/LizardByte/Sunshine) Installation</b>
 - [x] <b>[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)</b>
     - A dedicated display for your game stream will be created.
+> [!CAUTION]
+> Automatic download and installation of the Virtual Display Driver no longer works. [#23](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/23)
+>
+> Please download the version of your choice manually via this repo [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver/releases) while waiting for a future patch.
+
 > [!NOTE]
 > No need to copy the file `option.txt` anymore to set the correct resolution/frame rate.
 >
@@ -57,6 +62,11 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
 ## Sunshine-AIO
 
 - Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
+
+> [!CAUTION]
+> Automatic download and installation of the Virtual Display Driver no longer works. [#23](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/23)
+>
+> Please download the version of your choice manually via this repo [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver/releases) while waiting for a future patch.
 
 > [!WARNING]
 > The file might be flagged as Trojan/Malware, but it's a false positive. (It is due to **Nuitka** build)
