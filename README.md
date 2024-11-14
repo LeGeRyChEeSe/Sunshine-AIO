@@ -19,20 +19,16 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
 > [!WARNING]
 > :construction: <b>This Tool is under development. Bugs can appear.</b> :construction:
 
-<h2 align='center'>Current/Upcoming Features</h2>
+<h2 align='center'>Current Features</h2>
 
 - [x] <b>(Official) [Sunshine](https://github.com/LizardByte/Sunshine) Installation</b>
 - [x] <b>[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)</b>
     - A dedicated display for your game stream will be created.
-> [!CAUTION]
-> Automatic download and installation of the Virtual Display Driver no longer works. [#23](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/23)
->
-> Please download the version of your choice manually via this repo [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver/releases) while waiting for a future patch.
 
 > [!NOTE]
-> No need to copy the file `option.txt` anymore to set the correct resolution/frame rate.
+> The `"C:\IddSampleDriver\option.txt"` file is now **automatically** managed by the **Sunshine Virtual Monitor** tool.
 >
-> The process is now **automatic** and done directly by the **Sunshine Virtual Monitor** tool.
+> You don't need to manually copy this file anymore.
 - [x] <b>[Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)</b>
     - An <b>automated</b> script to:
         1. Automatically adjust the <b>Resolution</b>, <b>HDR</b>, and <b>Frame Rate</b> of the Virtual Display based on Moonlight client settings.
@@ -43,9 +39,7 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
     - An <b>automated</b> script to:
         1. <b>Import</b> all your favorite games into Sunshine effortlessly.
         2. <b>Gracefully</b> stop the stream when you close a game.
-- [ ] *Have more flexibility with Sunshine Virtual Monitor to manage different setups.* [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
-- [ ] *Automate the Playnite Watcher script/Add an option to execute it from the AIO tool.*
-- [ ] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
+
 
 # Table of Contents
 - [Sunshine-AIO](#sunshine-aio)
@@ -54,6 +48,7 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
 - [Contributing](#contributing)
 	- [Git Installation](#git-installation)
 	- [Python3 Installation](#python3-installation)
+- [TODO list](#todo-list)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
 - [Star History](#star-history)
@@ -62,11 +57,6 @@ It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine 
 ## Sunshine-AIO
 
 - Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
-
-> [!CAUTION]
-> Automatic download and installation of the Virtual Display Driver no longer works. [#23](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/23)
->
-> Please download the version of your choice manually via this repo [Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver/releases) while waiting for a future patch.
 
 > [!WARNING]
 > The file might be flagged as Trojan/Malware, but it's a false positive. (It is due to **Nuitka** build)
@@ -148,6 +138,13 @@ venv\Script\activate
 pip install -r requirements.txt
 
 ```
+
+
+## TODO list
+
+- [ ] *Have more flexibility with Sunshine Virtual Monitor to manage different setups.* [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
+- [ ] *Automate the Playnite Watcher script/Add an option to execute it from the AIO tool.*
+- [ ] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
 
 
 ## License
