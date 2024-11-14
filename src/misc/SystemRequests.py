@@ -129,6 +129,7 @@ class SystemRequests():
                 zip_ref.extractall(file_name)
             os.remove(zip_file)
         self._move_content_up(file_name)
+        return file_name
 
     def restart_sunshine_as_service(self, service_name) -> bool:
         # Arrêter le service Sunshine
@@ -183,7 +184,7 @@ class SystemRequests():
             return
 
         batch_file_path = self.find_file(
-            r'tools\VDD*\InstallCert.bat')
+            r'tools\*\InstallCert.bat')
 
         if batch_file_path:
             print("\nInstalling Virtual Display Driver certificat...")
@@ -234,3 +235,18 @@ class SystemRequests():
 
         if selective:
             self.pause()
+
+    def check_download_url(self, url: str):
+        if url.endswith('latest'):
+            return "latest"
+        elif url.endswith('releases'):
+            return "releases"
+        elif url.endswith(('.zip', '.exe')):
+            return "direct"
+        else:
+            return "unsupported"
+
+    def reset_tools_folder(self):
+        if os.path.exists('tools'):
+            shutil.rmtree('tools')
+        os.makedirs('tools', exist_ok=True)

@@ -141,11 +141,11 @@ Any contributions you make are **greatly appreciated**.
 > Add python to the Path when asked during the installation.
 
 - Install all the packages required to build the project:
-```py
+```batch
 cd Sunshine-AIO
 py -m venv venv
 venv\Script\activate
-pip install -r requirements
+pip install -r requirements.txt
 
 ```
 

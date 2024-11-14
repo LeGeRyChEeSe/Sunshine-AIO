@@ -106,7 +106,6 @@ class Config:
             file.write(f'global_prep_cmd = {global_prep_cmd_str}\n')
 
     def _get_vdd_friendly_name(self):
-        #command = "(Get-PnpDevice -Class Display | Where-Object {$_.FriendlyName -like '*idd*' -or $_.FriendlyName -like '*mtt*'}).FriendlyName -replace '\s+', ''"
         result = subprocess.run(["powershell.exe", "-Command", "(Get-PnpDevice", "-Class", "Display", "|", "Where-Object",
                                  "{$_.FriendlyName", "-like", "'*idd*'", "-or", "$_.FriendlyName", "-like", "'*mtt*'}).FriendlyName"], capture_output=True, text=True)
         if result.returncode != 0:
@@ -184,35 +183,47 @@ class DownloadManager:
     def config(self):
         raise ValueError("No manual edit allowed.")
 
-    def _download_file(self, url: str, filter: str = "", from_github: bool = False, vdd_version: str = "11"):
-        download_url, file_name = None, filter
+    def _download_file(self, url: str, name_filter: str = "", from_github: bool = False, vdd_version: str = "0"):
+        download_url, file_name = "", name_filter
 
         os.makedirs('tools', exist_ok=True)
 
         if from_github:
+            download_type = self.sr.check_download_url(url)
             url = url.replace("https://github.com/",
                               "https://api.github.com/repos/")
 
             response = requests.get(url)
             data = response.json()
 
-            if vdd_version == "10":
+            if download_type == "releases":
                 for release in data:
                     if not release["prerelease"]:
-                        if "HDR" not in release["assets"][0]["name"]:
-                            data = release
-                            break
+                        if vdd_version != '0':
+                            if f"Windows {vdd_version}" in release["name"]:
+                                file_name = release["assets"][0]["name"]
+                                download_url = release["assets"][0]["browser_download_url"]
+                                break
+                        else:
+                            for r in release['assets']:
+                                if name_filter in r['name']:
+                                    file_name = r['name']
+                                    download_url = r['browser_download_url']
 
-            try:
-                for r in data['assets']:
-                    if filter in r['name']:
-                        file_name = r['name']
-                        download_url = r['browser_download_url']
-            except KeyError:
-                return
+            elif download_type == "latest":
+                release = data
+                if not release["prerelease"]:
+                    for r in release['assets']:
+                        if name_filter in r['name']:
+                            file_name = r['name']
+                            download_url = r['browser_download_url']
+
+            elif download_type == "direct":
+                download_url = url
+
             else:
-                if download_url == None:
-                    return
+                print("URL format is not supported.")
+                return ""
 
             response = requests.get(download_url)
         else:
@@ -226,11 +237,13 @@ class DownloadManager:
 
         print(f"\nFile downloaded to {file_path}")
 
-        self._sr.extract_file(file_path)
+        final_file_name = self._sr.extract_file(file_path)
+
+        return final_file_name
 
     def download_all(self, install: bool = True):
         self._sr.clear_screen()
-        os.makedirs('tools', exist_ok=True)
+        self.sr.reset_tools_folder()
         self.download_sunshine(install)
         self.download_vdd(install)
         self.download_svm(install)
@@ -274,18 +287,17 @@ class DownloadManager:
 
     def download_vdd(self, install: bool = True, selective: bool = False):
         vdd = self._sr.all_configs["VirtualDisplayDriver"]
-        vdd_download_pattern = vdd[f"download_pattern_w{self.config.release}"]
-        vdd_download_url = vdd[f"download_url_w{self.config.release}"]
+        vdd_download_url = vdd["download_url"]
         vdd_device_id = vdd["device_id"]
 
-        self._download_file(vdd_download_url, vdd_download_pattern,
-                            from_github=True, vdd_version=self.config.release)
+        file_name = self._download_file(vdd_download_url, from_github=True,
+                                        vdd_version=self.config.release)
 
-        vdd_downloaded_dir_path = self._sr.find_file(
-            vdd[f"downloaded_dir_path_w{self.config.release}"])
+        vdd_downloaded_dir_path = self._sr.find_file(file_name)
 
         if not vdd_downloaded_dir_path:
             print("\nVirtual Display Driver was not correctly downloaded.")
+            print(vdd_downloaded_dir_path, self.config.release, vdd_download_url)
             self._sr.pause()
             return
 

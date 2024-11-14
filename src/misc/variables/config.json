@@ -8,12 +8,7 @@
 		"settings_url": "https://localhost:47990/config"
 	},
 	"VirtualDisplayDriver": {
-		"download_url_w10": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases",
-		"download_url_w11": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases/latest",
-		"download_pattern_w10": "VDD",
-		"download_pattern_w11": "VDD.HDR",
-		"downloaded_dir_path_w10": "tools\\VDD*",
-		"downloaded_dir_path_w11": "tools\\VDD.HDR*",
+		"download_url": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases",
 		"device_id": "Root\\IddSampleDriver"
 	},
 	"Nefcon": {
