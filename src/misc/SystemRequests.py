@@ -45,6 +45,13 @@ class SystemRequests():
     def release(self):
         raise ValueError("No manual edit allowed.")
 
+    def is_path_contains_spaces(self, path_name: str):
+        if " " in path_name:
+            print(f'"{path_name}"\n\nThe path contains spaces. Please move the Sunshine-AIO.exe file to a folder whose path does not contain any spaces.')
+            self._delete_tools_folder()
+            self.pause()
+            exit()
+
     def _set_config(self):
         with open(f"{self._base_path}\\misc\\variables\\config.json", "rb") as config:
             self._all_configs = json.loads(config.read())
@@ -128,7 +135,9 @@ class SystemRequests():
                 print(f"\nExtracting {zip_file} to {file_name}")
                 zip_ref.extractall(file_name)
             os.remove(zip_file)
-        self._move_content_up(file_name)
+            self._move_content_up(file_name)
+        else:
+            file_name = zip_file
         return file_name
 
     def restart_sunshine_as_service(self, service_name) -> bool:
@@ -247,6 +256,9 @@ class SystemRequests():
             return "unsupported"
 
     def reset_tools_folder(self):
+        self._delete_tools_folder()
+        os.makedirs('tools', exist_ok=True)
+
+    def _delete_tools_folder(self):
         if os.path.exists('tools'):
             shutil.rmtree('tools')
-        os.makedirs('tools', exist_ok=True)
