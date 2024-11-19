@@ -13,7 +13,8 @@
 
 <p align="center">
 An all-in-one tool to setup Sunshine with all needed tools (Windows 10/11).<br>
-It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.
+It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.<br>
+Official Website: https://sunshine-aio.com
 </p>
 
 > [!WARNING]
