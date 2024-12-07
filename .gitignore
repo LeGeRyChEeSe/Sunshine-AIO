@@ -1,14 +1,6 @@
 **/__pycache__
-virtualenv-python-sunshine-aio
-venv
+*venv
 tools
-dist
-build
-**.spec
-version.txt
 .env
-produced
 *.iss
-release.py
-*.exe
-Output
+.vscode

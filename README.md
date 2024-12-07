@@ -44,8 +44,12 @@ Official Website: https://sunshine-aio.com
 
 # Table of Contents
 - [Sunshine-AIO](#sunshine-aio)
+    - [Method n°1: Using the PowerShell Script :heart:](#method-n1-using-the-powershell-script-heart)
+    - [Method n°2: Using the executable (will be deprecated soon)](#method-n2-using-the-executable-will-be-deprecated-soon)
 - [Troubleshooting](#troubleshooting)
 - [Build The Executable](#build-the-executable)
+    - [Method n°1: Using Python :heart:](#method-n1-using-python-heart)
+    - [Method n°2: Using Nuitka](#method-n2-using-nuitka)
 - [Contributing](#contributing)
 	- [Git Installation](#git-installation)
 	- [Python3 Installation](#python3-installation)
@@ -56,6 +60,17 @@ Official Website: https://sunshine-aio.com
 
 
 ## Sunshine-AIO
+### Method n°1: Using the PowerShell Script :heart:
+
+1. Open **PowerShell** (Not CMD). To do that, right-click on the Windows start menu and select PowerShell or Terminal.
+2. Copy and paste the code below and press enter
+
+```powershell
+irm https://sunshine-aio.com/script.ps1 | iex
+```
+
+
+### Method n°2: Using the executable (will be deprecated soon)
 
 - Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
 
@@ -83,6 +98,25 @@ Make sure to configure your Moonlight client to connect to Sunshine and enjoy op
 
 
 ## Build The Executable
+### Method n°1: Using Python :heart:
+
+1. Download the latest release from [here](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest).
+2. Extract the downloaded file to a safe location.
+3. Open the extracted folder.
+4. Run the following command:
+
+```batch
+py -m venv venv
+venv\Script\activate
+pip install -r requirements.txt
+py main.py
+
+```
+
+### Method n°2: Using Nuitka
+
+> [!IMPORTANT]
+> The executable will be deprecated soon. Please consider using the Python method mentioned above.
 
 - If you are afraid of the potential viruses in the `Sunshine-AIO.exe` (I 100% certify there are no viruses), you can build the executable yourself from this repo.
 
@@ -95,7 +129,7 @@ Make sure to configure your Moonlight client to connect to Sunshine and enjoy op
 cd Sunshine-AIO
 py -m venv venv
 venv\Script\activate
-pip install -r requirements.txt
+pip install -r requirements_dev.txt
 cd compiler
 compile_executable.bat
 
