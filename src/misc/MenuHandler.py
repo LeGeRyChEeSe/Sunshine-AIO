@@ -3,6 +3,7 @@ import sys
 from typing import List, Dict
 from misc.Config import DownloadManager
 from misc.SystemRequests import SystemRequests
+from misc.Uninstaller import SunshineAIOUninstaller
 from . import __version__
 
 
@@ -31,6 +32,7 @@ class MenuHandler:
         self._rerun_as_admin = self._sr.rerun_as_admin
         self._dm: DownloadManager = DownloadManager(self._sr, self._page)
         self._config = self._dm.config
+        self._uninstaller: SunshineAIOUninstaller = SunshineAIOUninstaller(self._sr)
         self._map = [
             {
                 "1": self._dm.download_all,
@@ -40,6 +42,7 @@ class MenuHandler:
                 "5": lambda: self._dm.download_playnite(selective=True),
                 "6": lambda: self._dm.download_playnite_watcher(selective=True),
                 "7": self._next_page,
+                "8": self._show_uninstall_menu,
                 "0": sys.exit
             },
             {
@@ -61,6 +64,14 @@ class MenuHandler:
                 "6": lambda: self._dm.download_playnite(install=False, selective=True),
                 "7": lambda: self._dm.download_playnite_watcher(install=False, selective=True),
                 "8": self._previous_page,
+                "0": sys.exit
+            },
+            {
+                "1": self._show_uninstall_report,
+                "2": self._show_installed_components,
+                "3": self._uninstall_specific_component,
+                "4": self._uninstall_all_components,
+                "5": self._previous_page,
                 "0": sys.exit
             }
         ]
@@ -203,6 +214,71 @@ class MenuHandler:
     def _execute_selection(self):
         # Execute the method associated with the user_input
         self._get_selection()()
+
+    def _show_uninstall_menu(self):
+        """Affiche le menu de désinstallation."""
+        self._page = 3  # Page de désinstallation
+        self._set_choices_number()
+
+    def _show_uninstall_report(self):
+        """Affiche le rapport de désinstallation."""
+        self._sr.clear_screen()
+        print(self._uninstaller.generate_uninstall_report())
+        input("\nAppuyez sur Entrée pour continuer...")
+
+    def _show_installed_components(self):
+        """Affiche les composants installés."""
+        self._sr.clear_screen()
+        installed = self._uninstaller.list_installed_components()
+        
+        if installed:
+            print("Composants Sunshine-AIO installés:")
+            for component in installed:
+                print(f"  ✓ {component}")
+        else:
+            print("Aucun composant Sunshine-AIO détecté sur ce système.")
+        
+        input("\nAppuyez sur Entrée pour continuer...")
+
+    def _uninstall_specific_component(self):
+        """Désinstalle un composant spécifique."""
+        self._sr.clear_screen()
+        print("Composants disponibles pour désinstallation:")
+        
+        components_list = list(self._uninstaller.components.values())
+        for i, component in enumerate(components_list, 1):
+            print(f"  {i}. {component['name']}")
+        
+        try:
+            choice = int(input(f"\nChoisissez un composant (1-{len(components_list)}): ")) - 1
+            if 0 <= choice < len(components_list):
+                component_name = components_list[choice]['name']
+                print(f"\nDésinstallation de {component_name}...")
+                
+                if self._uninstaller.uninstall_component(component_name):
+                    print(f"✓ {component_name} désinstallé avec succès!")
+                else:
+                    print(f"❌ Problème lors de la désinstallation de {component_name}")
+            else:
+                print("Sélection invalide.")
+        except ValueError:
+            print("Entrée invalide.")
+        
+        input("\nAppuyez sur Entrée pour continuer...")
+
+    def _uninstall_all_components(self):
+        """Désinstalle tous les composants."""
+        self._sr.clear_screen()
+        print("ATTENTION: Cette opération va supprimer TOUS les composants Sunshine-AIO!")
+        print("Cette action est irréversible.")
+        
+        if self._uninstaller.uninstall_all():
+            print("\n✓ Désinstallation complète terminée avec succès!")
+        else:
+            print("\n❌ Désinstallation terminée avec des avertissements.")
+            print("Consultez les messages ci-dessus pour plus de détails.")
+        
+        input("\nAppuyez sur Entrée pour continuer...")
 
     def print_menu(self):
         while True:
