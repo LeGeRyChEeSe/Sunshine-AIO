@@ -179,7 +179,7 @@ pip install -r requirements.txt
 
 - [ ] *Have more flexibility with Sunshine Virtual Monitor to manage different setups.* [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
 - [ ] *Automate the Playnite Watcher script/Add an option to execute it from the AIO tool.*
-- [ ] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
+- [x] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
 
 
 ## License
