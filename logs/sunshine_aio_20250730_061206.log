@@ -1,0 +1,49 @@
+================================================================================
+SUNSHINE-AIO EXECUTION LOG
+Session started: 2025-07-30 06:12:06
+Log file: logs/sunshine_aio_20250730_061206.log
+================================================================================
+
+[06:12:06] ℹ Session log: logs/sunshine_aio_20250730_061206.log
+
+[06:12:32] ===== SECTION START: SUNSHINE VIRTUAL MONITOR SETUP =====
+[06:12:32] → Starting Sunshine Virtual Monitor download and setup
+[06:12:32] ℹ Download URL: https://github.com/Cynary/sunshine-virtual-monitor/archive/refs/heads/main.zip
+[06:12:32] ℹ Pattern: sunshine-virtual-monitor-main.zip
+[06:12:32] → Step 1/5: Downloading Sunshine Virtual Monitor
+[06:12:32] → Downloading sunshine-virtual-monitor-main.zip
+[06:12:32] ✓ File downloaded to "D:\Documents\Programmation\Projets\Sunshine-AIO\tools\sunshine-virtual-monitor-main.zip"
+[06:12:32] ✓ Sunshine Virtual Monitor downloaded successfully
+[06:12:32] → Step 2/5: Installing Windows Display Manager PowerShell module
+[06:12:32] ✓ Windows Display Manager installed successfully
+[06:12:32] → Step 3/5: Downloading Multi Monitor Tool
+[06:12:33] → Downloading multimonitortool-x64.zip
+[06:12:33] ✓ File downloaded to "D:\Documents\Programmation\Projets\Sunshine-AIO\tools\multimonitortool-x64.zip"
+[06:12:33] ✓ Multi Monitor Tool downloaded and configured
+[06:12:33] → Step 4/5: Downloading VSync Toggle
+[06:12:34] → Downloading vsynctoggle-1.1.0-x86_64.exe
+[06:12:34] ✓ File downloaded to "D:\Documents\Programmation\Projets\Sunshine-AIO\tools\vsynctoggle-1.1.0-x86_64.exe"
+[06:12:34] ✓ VSync Toggle downloaded successfully
+[06:12:34] → Step 5/5: Configuring Sunshine for Virtual Monitor
+[06:12:34] ✗ Failed to configure Sunshine
+[06:12:34] EXCEPTION DETAILS:
+Exception Type: OSError
+Exception Message: Sunshine is not installed.
+Traceback:
+Traceback (most recent call last):
+  File "D:\Documents\Programmation\Projets\Sunshine-AIO\src\misc\Config.py", line 537, in download_svm
+    self.config.configure_sunshine()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Documents\Programmation\Projets\Sunshine-AIO\src\misc\Config.py", line 120, in configure_sunshine
+    self._reset_global_prep_cmd()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Documents\Programmation\Projets\Sunshine-AIO\src\misc\Config.py", line 40, in _reset_global_prep_cmd
+    raise OSError("Sunshine is not installed.")
+OSError: Sunshine is not installed.
+--------------------------------------------------------------------------------
+
+[06:12:34] ✓ Sunshine Virtual Monitor installation completed!
+[06:12:34] ℹ All components have been downloaded and configured
+[06:12:34] ===== SECTION END: SUNSHINE VIRTUAL MONITOR SETUP =====
+
+[06:12:58] ℹ Session log: logs/sunshine_aio_20250730_061206.log

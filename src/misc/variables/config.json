@@ -8,7 +8,8 @@
 		"settings_url": "https://localhost:47990/config"
 	},
 	"VirtualDisplayDriver": {
-		"download_url": "https://github.com/itsmikethetech/Virtual-Display-Driver/releases",
+		"download_url": "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/latest",
+		"download_pattern": "VDD.Control",
 		"device_id": "Root\\IddSampleDriver"
 	},
 	"Nefcon": {
