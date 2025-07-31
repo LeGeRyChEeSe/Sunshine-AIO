@@ -83,8 +83,6 @@ irm https://sunshine-aio.com/script.ps1 | iex
 </tr>
 </table>
 
-<div align="center">
-
 > [!IMPORTANT]
 > ### 🆕 **NEW in v0.3.0** - Advanced Uninstallation System
 > 
@@ -96,8 +94,6 @@ irm https://sunshine-aio.com/script.ps1 | iex
 > </tr>
 > </table>
 
-</div>
-
 ---
 
 ## 📖 Documentation
@@ -105,24 +101,23 @@ irm https://sunshine-aio.com/script.ps1 | iex
 <details>
 <summary><strong>🔧 Build from Source</strong></summary>
 
-> [!NOTE]
-> ### 🐍 **Python Method** (Recommended)
-> 
-> ```bash
-> # Download and extract latest release
-> py -m venv venv
-> venv\Scripts\activate
-> pip install -r requirements.txt
-> py main.py
-> ```
+### 🐍 **Python Method** (Recommended)
+
+```bash
+# Download and extract latest release
+py -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+py main.py
+```
 
 ### 🏗️ **Build Executable**
 
 ```bash
 git clone https://github.com/LeGeRyChEeSe/Sunshine-AIO.git
 cd Sunshine-AIO
-py -m venv venv
-venv\Scripts\activate
+py -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements_dev.txt
 cd compiler
 compile_executable.bat
@@ -133,10 +128,10 @@ compile_executable.bat
 <details>
 <summary><strong>🤝 Contributing</strong></summary>
 
-> [!NOTE]
-> ### **Prerequisites**
-> - 🔗 [Git for Windows](https://git-scm.com/download/win)
-> - 🐍 [Python 3.x](https://www.python.org/downloads/) (add to PATH)
+
+### **Prerequisites**
+- 🔗 [Git for Windows](https://git-scm.com/download/win)
+- 🐍 [Python 3.x](https://www.python.org/downloads/) (add to PATH)
 
 ### **Steps**
 1. **Fork** the project
@@ -150,12 +145,12 @@ compile_executable.bat
 <details>
 <summary><strong>📋 TODO List</strong></summary>
 
-> [!NOTE]
-> **Current Development Status:**
-> 
-> - [x] ✅ **Clean Uninstaller** - *COMPLETED in v0.3.0*
-> - [ ] 🖥️ **Enhanced Virtual Monitor flexibility** [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
-> - [ ] 🤖 **Automated Playnite Watcher integration**
+
+**Current Development Status:**
+
+- [x] ✅ **Clean Uninstaller** - *COMPLETED in v0.3.0*
+- [ ] 🖥️ **Enhanced Virtual Monitor flexibility** [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
+- [ ] 🤖 **Automated Playnite Watcher integration**
 
 </details>
 
@@ -165,13 +160,13 @@ compile_executable.bat
 
 <div align="center">
 
-> [!TIP]
-> ### 🐛 **Having Issues?**
-> 
-> [📋 Check Existing Issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) • [🆕 Report New Issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new)
-> 
-> ### 🌐 **Official Website**
-> **[sunshine-aio.com](https://sunshine-aio.com)**
+
+### 🐛 **Having Issues?**
+
+[📋 Check Existing Issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) • [🆕 Report New Issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new)
+
+### 🌐 **Official Website**
+**[sunshine-aio.com](https://sunshine-aio.com)**
 
 </div>
 
