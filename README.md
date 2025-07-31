@@ -1,209 +1,203 @@
-<h1 align='center'>Sunshine-AIO</h1>
-<p align="center">
-<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/ressources/sunshine_aio.jpg?raw=true" align="center" height=350 alt="Sunshine-AIO" />
-</p>
-<p align="center">
-<img src='https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO', alt='Visitors'/>
-<a href="https://github.com/LeGeRyChEeSe/Sunshine-AIO/stargazers">
-<img src="https://img.shields.io/github/stars/LeGeRyChEeSe/Sunshine-AIO" alt="Stars"/>
-</a>
-<a href="https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues">
-<img src="https://img.shields.io/github/issues/LeGeRyChEeSe/Sunshine-AIO" alt="Issues"/>
-</a>
+<div align="center">
 
-<p align="center">
-An all-in-one tool to setup Sunshine with all needed tools (Windows 10/11).<br>
-It includes: (Official) Sunshine Installation, Virtual Display Driver, Sunshine Virtual Monitor, Playnite and Playnite Watcher.<br>
-Official Website: https://sunshine-aio.com
-</p>
+# 🌞 Sunshine-AIO
 
-> [!WARNING]
-> :construction: <b>This Tool is under development. Bugs can appear.</b> :construction:
+<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/ressources/sunshine_aio.jpg?raw=true" height="300" alt="Sunshine-AIO Logo" />
 
-<h2 align='center'>Current Features</h2>
+[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
+[![Stars](https://img.shields.io/github/stars/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/stargazers)
+[![Issues](https://img.shields.io/github/issues/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues)
+[![Version](https://img.shields.io/github/v/tag/LeGeRyChEeSe/Sunshine-AIO?label=version&color=blue)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
 
-- [x] <b>(Official) [Sunshine](https://github.com/LizardByte/Sunshine) Installation</b>
-- [x] <b>[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)</b>
-    - A dedicated display for your game stream will be created.
+**🎮 The Ultimate Sunshine Streaming Setup Tool for Windows 10/11**
 
-> [!NOTE]
-> The `"C:\IddSampleDriver\option.txt"` file is now **automatically** managed by the **Sunshine Virtual Monitor** tool.
->
-> You don't need to manually copy this file anymore.
-- [x] <b>[Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)</b>
-    - An <b>automated</b> script to:
-        1. Automatically adjust the <b>Resolution</b>, <b>HDR</b>, and <b>Frame Rate</b> of the Virtual Display based on Moonlight client settings.
-        2. <b>Deactivate</b> all your physical monitors and <b>enable</b> the dedicated Virtual Display to stream your games.
-- [x] <b>[Playnite](https://github.com/JosefNemec/Playnite)</b>
-    - A <b>Universal Launcher</b> to launch all your favorites games from one place.
-- [x] <b>[Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher)</b>
-    - An <b>automated</b> script to:
-        1. <b>Import</b> all your favorite games into Sunshine effortlessly.
-        2. <b>Gracefully</b> stop the stream when you close a game.
+*One script to install everything you need for the perfect game streaming experience*
 
+[🚀 Quick Start](#-quick-start) • [🎯 Features](#-features) • [📖 Documentation](#-documentation) • [🤝 Support](#-support)
 
-# Table of Contents
-- [Sunshine-AIO](#sunshine-aio)
-    - [Method n°1: Using the PowerShell Script :heart:](#method-n1-using-the-powershell-script-heart)
-    - [Method n°2: Using the executable (will be deprecated soon)](#method-n2-using-the-executable-will-be-deprecated-soon)
-- [Troubleshooting](#troubleshooting)
-- [Build The Executable](#build-the-executable)
-    - [Method n°1: Using Python :heart:](#method-n1-using-python-heart)
-    - [Method n°2: Using Nuitka](#method-n2-using-nuitka)
-- [Contributing](#contributing)
-	- [Git Installation](#git-installation)
-	- [Python3 Installation](#python3-installation)
-- [TODO list](#todo-list)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
-- [Star History](#star-history)
+---
 
+</div>
 
-## Sunshine-AIO
-### Method n°1: Using the PowerShell Script :heart:
+## 🚀 Quick Start
 
-1. Open **PowerShell** (Not CMD). To do that, right-click on the Windows start menu and select PowerShell or Terminal.
-2. Copy and paste the code below and press enter
+> [!TIP]
+> **⚡ Super simple - just one command to run!**
+
+<div align="center">
+
+### 🔥 **PowerShell Installation** (Only supported method)
+
+**✨ Instant setup - just copy & paste this single command:**
+
+</div>
 
 ```powershell
 irm https://sunshine-aio.com/script.ps1 | iex
 ```
 
-
-### Method n°2: Using the executable (will be deprecated soon)
-
-- Download the [Latest Release](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest) and execute `Sunshine-AIO.exe`.
+### 📋 **Installation Steps:**
+1. **Right-click** Windows Start button → Select **PowerShell** or **Terminal**
+2. **Copy and paste** the command above
+3. **Press Enter** and follow the interactive prompts ✨
 
 > [!WARNING]
-> The file might be flagged as Trojan/Malware, but it's a false positive. (It is due to **Nuitka** build)
->
-> To prevent the file being deleted by your anti-virus, make sure to temporarily disable your anti-virus, or add an exception to the folder you want to download the file.
+> **Legacy Executable (DEPRECATED)**: The downloadable `.exe` files are no longer maintained and should not be used. Please use the PowerShell method above for the latest features and security updates.
 
-> [!NOTE]	
-> Playnite and Playnite Watcher are optional, but they are installed by default within the `everything` command.
+---
 
+## 🎯 Features
 
-## Troubleshooting
+<div align="center">
 
-> [!CAUTION]
-> Please keep in mind this AIO tool is still in development and you may encounter bugs or issues when using it.
->
-> Some features mentioned in the first lines of this readme aren't yet implemented such as *clean uninstaller* feature.
->
-> I'm working on it but it could take some times to implement.
+### 🛠️ **What Gets Installed**
 
-Please check the [opened issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) before opening a new issue.
+</div>
 
-Make sure to configure your Moonlight client to connect to Sunshine and enjoy optimized streaming! 🌞
+<table>
+<tr>
+<td width="33%">
 
+### 🌟 **Core Streaming**
+- 🎮 **[Sunshine](https://github.com/LizardByte/Sunshine)** - Official streaming server
+- 🖥️ **[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)** - Dedicated streaming display
+- ⚙️ **[Sunshine Virtual Monitor](https://github.com/Cynary/sunshine-virtual-monitor)** - Smart display management
 
-## Build The Executable
-### Method n°1: Using Python :heart:
+</td>
+<td width="33%">
 
-1. Download the latest release from [here](https://github.com/LeGeRyChEeSe/Sunshine-AIO/releases/latest).
-2. Extract the downloaded file to a safe location.
-3. Open the extracted folder.
-4. Run the following command:
+### 🎲 **Game Management**
+- 🎯 **[Playnite](https://github.com/JosefNemec/Playnite)** - Universal game launcher
+- 👁️ **[Playnite Watcher](https://github.com/Nonary/PlayNiteWatcher)** - Auto game import & stream management
 
-```batch
-py -m venv venv
-venv\Script\activate
-pip install -r requirements.txt
-py main.py
+</td>
+<td width="33%">
 
-```
+### ✨ **Smart Features**
+- 🎚️ **Auto Resolution/HDR/FPS** adjustment
+- 🔄 **Monitor switching** automation  
+- 🗑️ **Complete uninstaller** system
+- 📊 **Installation tracking**
 
-### Method n°2: Using Nuitka
+</td>
+</tr>
+</table>
+
+<div align="center">
 
 > [!IMPORTANT]
-> The executable will be deprecated soon. Please consider using the Python method mentioned above.
+> ### 🆕 **NEW in v0.3.0** - Advanced Uninstallation System
+> 
+> <table>
+> <tr>
+> <td>🔍 <strong>Smart Detection</strong><br/>Finds official uninstallers automatically</td>
+> <td>📋 <strong>Installation Tracking</strong><br/>Remembers everything that was installed</td>
+> <td>🧹 <strong>Complete Cleanup</strong><br/>Registry, services, drivers, firewall rules</td>
+> </tr>
+> </table>
 
-- If you are afraid of the potential viruses in the `Sunshine-AIO.exe` (I 100% certify there are no viruses), you can build the executable yourself from this repo.
+</div>
 
-- Clone the repo with the `git clone https://github.com/LeGeRyChEeSe/Sunshine-AIO.git` command somewhere in a safe location and execute these commands:
+---
 
-> [!WARNING]
-> Before trying to build the executable, make sure you have [Python](#python3-installation) and [Git](#git-installation) installed.
+## 📖 Documentation
 
-```batch
+<details>
+<summary><strong>🔧 Build from Source</strong></summary>
+
+> [!NOTE]
+> ### 🐍 **Python Method** (Recommended)
+> 
+> ```bash
+> # Download and extract latest release
+> py -m venv venv
+> venv\Scripts\activate
+> pip install -r requirements.txt
+> py main.py
+> ```
+
+### 🏗️ **Build Executable**
+
+```bash
+git clone https://github.com/LeGeRyChEeSe/Sunshine-AIO.git
 cd Sunshine-AIO
 py -m venv venv
-venv\Script\activate
+venv\Scripts\activate
 pip install -r requirements_dev.txt
 cd compiler
 compile_executable.bat
-
 ```
 
-- The executable should then appear in the `produced` folder next to the `compile_executable.bat` file.
+</details>
 
+<details>
+<summary><strong>🤝 Contributing</strong></summary>
 
-## Contributing
+> [!NOTE]
+> ### **Prerequisites**
+> - 🔗 [Git for Windows](https://git-scm.com/download/win)
+> - 🐍 [Python 3.x](https://www.python.org/downloads/) (add to PATH)
 
-Any contributions you make are **greatly appreciated**.
+### **Steps**
+1. **Fork** the project
+2. **Create** feature branch: `git checkout -b feature/NewFeature`
+3. **Commit** changes: `git commit -m 'Add NewFeature'`
+4. **Push** to branch: `git push origin feature/NewFeature`
+5. **Open** a Pull Request
 
-1. Fork the Project.
-2. Create your Feature Branch. (`git checkout -b feature/NewFeature`)
-3. Commit your Changes. (`git commit -m 'Add some NewFeature'`)
-4. Push to the Branch. (`git push origin feature/NewFeature`)
-5. Open a Pull Request.
+</details>
 
-<i>Thanks to every [contributors](https://github.com/LeGeRyChEeSe/Sunshine-AIO/graphs/contributors) who have contributed in this project.</i>
+<details>
+<summary><strong>📋 TODO List</strong></summary>
 
-- You will need some pre-requisites:
+> [!NOTE]
+> **Current Development Status:**
+> 
+> - [x] ✅ **Clean Uninstaller** - *COMPLETED in v0.3.0*
+> - [ ] 🖥️ **Enhanced Virtual Monitor flexibility** [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
+> - [ ] 🤖 **Automated Playnite Watcher integration**
 
+</details>
 
-### Git Installation
+---
 
-- Download [Git for Windows](https://git-scm.com/download/win) and install it on your computer.
+## 🤝 Support
 
+<div align="center">
 
-### Python3 Installation
+> [!TIP]
+> ### 🐛 **Having Issues?**
+> 
+> [📋 Check Existing Issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) • [🆕 Report New Issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new)
+> 
+> ### 🌐 **Official Website**
+> **[sunshine-aio.com](https://sunshine-aio.com)**
 
-- Download [Latest Python3](https://www.python.org/downloads/) and install it on your computer.
+</div>
 
->[!IMPORTANT]
-> Add python to the Path when asked during the installation.
+> [!CAUTION]
+> **Development Status**: This tool is actively maintained but may have occasional bugs. Please report any issues you encounter!
 
-- Install all the packages required to build the project:
-```batch
-cd Sunshine-AIO
-py -m venv venv
-venv\Script\activate
-pip install -r requirements.txt
+---
 
-```
+## 📝 License & Credits
 
+<div align="center">
 
-## TODO list
+**📄 Licensed under [MIT License](LICENSE)**
 
-- [ ] *Have more flexibility with Sunshine Virtual Monitor to manage different setups.* [#13](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/13)
-- [ ] *Automate the Playnite Watcher script/Add an option to execute it from the AIO tool.*
-- [ ] *Clean Uninstaller* [#12](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/12)
+### 🙏 **Special Thanks**
 
+[**LizardByte**](https://github.com/LizardByte/Sunshine) • [**itsmikethetech**](https://github.com/itsmikethetech/Virtual-Display-Driver) • [**Cynary**](https://github.com/Cynary/sunshine-virtual-monitor) • [**JosefNemec**](https://github.com/JosefNemec/Playnite) • [**Nonary**](https://github.com/Nonary/PlayNiteWatcher)
 
-## License
+---
 
-Distributed under the MIT License. See [LICENSE](https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/LICENSE) for more information.
-
-
-## Acknowledgements
-
-Shoutout to <b>LizardByte</b> for the Sunshine repo: https://github.com/LizardByte/Sunshine
-
-Shoutout to <b>itsmikethetech</b> for the Virtual Display Driver repo: https://github.com/itsmikethetech/Virtual-Display-Driver
-
-Thanks to <b>Cynary</b> for the Sunshine Virtual Monitor scripts: https://github.com/Cynary/sunshine-virtual-monitor
-
-Shoutout to <b>JosefNemec</b> for Playnite: https://github.com/JosefNemec/Playnite
-
-Shoutout to <b>Nonary</b> for the PlayNiteWatcher script: https://github.com/Nonary/PlayNiteWatcher
-
-
-## Star History
+### 📈 **Star History**
 
 [![Star History Chart](https://api.star-history.com/svg?repos=LeGeRyChEeSe/Sunshine-AIO&type=Date)](https://star-history.com/#LeGeRyChEeSe/Sunshine-AIO&Date)
 
-----
+---
 
-Author/Maintainer: [Garoh](https://github.com/LeGeRyChEeSe/) | Discord: garohrl
+**👨‍💻 Author**: [Garoh](https://github.com/LeGeRyChEeSe/) | **💬 Discord**: garohrl
+
+</div>

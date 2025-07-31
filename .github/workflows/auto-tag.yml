@@ -1,0 +1,104 @@
+name: Auto Tag on Version Change
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'src/misc/__init__.py'
+  # Déclencheur manuel pour les tests
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Test mode (no tag creation)'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get version from __init__.py
+      id: get_version
+      run: |
+        VERSION=$(grep -oP '__version__ = "\K[^"]+' src/misc/__init__.py)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Found version: $VERSION"
+    
+    - name: Check if tag exists
+      id: check_tag
+      run: |
+        if git rev-parse --verify "refs/tags/${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "Tag ${{ steps.get_version.outputs.version }} already exists"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "Tag ${{ steps.get_version.outputs.version }} does not exist"
+        fi
+    
+    - name: Extract changelog for current version
+      id: changelog
+      if: steps.check_tag.outputs.exists == 'false'
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        
+        # Extract changelog section for current version
+        if [ -f "CHANGELOG.md" ]; then
+          # Find the section for current version and extract until next version or end
+          CHANGELOG_CONTENT=$(awk "
+            /^## $VERSION/ { found=1; next }
+            found && /^## / { found=0 }
+            found { print }
+          " CHANGELOG.md | sed '/^$/d' | head -20)
+          
+          if [ -n "$CHANGELOG_CONTENT" ]; then
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "✅ Found changelog for version $VERSION"
+          else
+            echo "changelog=🆕 New version released with improvements and bug fixes." >> $GITHUB_OUTPUT
+            echo "⚠️ No specific changelog found for version $VERSION, using default message"
+          fi
+        else
+          echo "changelog=🆕 New version released with improvements and bug fixes." >> $GITHUB_OUTPUT
+          echo "⚠️ CHANGELOG.md not found, using default message"
+        fi
+    
+    - name: Create and push tag with changelog
+      if: steps.check_tag.outputs.exists == 'false'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Vérifier si c'est un test manuel
+        if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          echo "🧪 DRY RUN MODE - No tag will be created"
+          echo "📋 Tag that would be created: ${{ steps.get_version.outputs.version }}"
+          echo "📝 Message that would be used:"
+          echo "Release ${{ steps.get_version.outputs.version }}"
+          echo ""
+          echo "${{ steps.changelog.outputs.changelog }}"
+          echo "✅ Test completed successfully - no actual tag created"
+        else
+          # Create tag with changelog as message
+          TAG_MESSAGE="Release ${{ steps.get_version.outputs.version }}
+        
+        ${{ steps.changelog.outputs.changelog }}"
+          
+          git tag -a "${{ steps.get_version.outputs.version }}" -m "$TAG_MESSAGE"
+          git push origin "${{ steps.get_version.outputs.version }}"
+          echo "✅ Created and pushed tag: ${{ steps.get_version.outputs.version }}"
+          echo "📝 Tag includes changelog content"
+        fi
+    
+    - name: Tag already exists
+      if: steps.check_tag.outputs.exists == 'true'
+      run: |
+        echo "ℹ️ Tag ${{ steps.get_version.outputs.version }} already exists, skipping creation"
