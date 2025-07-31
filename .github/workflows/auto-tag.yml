@@ -17,6 +17,8 @@ on:
 jobs:
   auto-tag:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Permission to create tags and push to repo
     
     steps:
     - name: Checkout code
