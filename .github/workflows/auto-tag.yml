@@ -52,17 +52,48 @@ jobs:
         
         # Extract changelog section for current version
         if [ -f "CHANGELOG.md" ]; then
-          # Find the section for current version and extract until next version or end
-          CHANGELOG_CONTENT=$(awk "
-            /^## $VERSION/ { found=1; next }
-            found && /^## / { found=0 }
-            found { print }
-          " CHANGELOG.md | sed '/^$/d' | head -20 | sed 's/`/\\`/g')
+          # First try to get from "Latest Release" section (most recent version)
+          LATEST_CONTENT=$(awk '
+            /^## Latest Release/ { in_latest=1; next }
+            in_latest && /^---/ { in_latest=0 }
+            in_latest && /^### / { 
+              if (match($0, /### (v[0-9]+\.[0-9]+\.[0-9]+)/, arr)) {
+                if (arr[1] == "'"$VERSION"'") { 
+                  found_version=1; next 
+                }
+              }
+            }
+            in_latest && found_version { print }
+          ' CHANGELOG.md)
           
+          # If not found in Latest Release, try All Releases section
+          if [ -z "$LATEST_CONTENT" ]; then
+            CHANGELOG_CONTENT=$(awk "
+              /^### $VERSION/ { found=1; next }
+              found && /^### / { found=0 }
+              found && /^#### / { print; next }
+              found && /^- / { print; next }
+              found && /^  - / { print; next }
+            " CHANGELOG.md)
+          else
+            CHANGELOG_CONTENT="$LATEST_CONTENT"
+          fi
+          
+          # Clean up and format for GitHub
           if [ -n "$CHANGELOG_CONTENT" ]; then
+            # Convert markdown formatting for better GitHub display
+            FORMATTED_CONTENT=$(echo "$CHANGELOG_CONTENT" | \
+              sed 's/^\*\*\([^*]*\)\*\*:/## \1/g' | \
+              sed 's/^\*\*\([^*]*\)\*\*/### \1/g' | \
+              sed 's/^- \*\*\([^*]*\)\*\*:/• **\1:**/g' | \
+              sed 's/^  - /  • /g' | \
+              sed 's/^- /• /g' | \
+              sed '/^$/d' | \
+              head -30)
+            
             {
               echo "changelog<<EOF"
-              echo "$CHANGELOG_CONTENT"
+              echo "$FORMATTED_CONTENT"
               echo "EOF"
             } >> $GITHUB_OUTPUT
             echo "✅ Found changelog for version $VERSION"

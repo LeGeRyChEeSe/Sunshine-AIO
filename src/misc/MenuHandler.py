@@ -75,7 +75,7 @@ class MenuHandler:
                 "2": self._show_installed_components,
                 "3": self._uninstall_specific_component,
                 "4": self._uninstall_all_components,
-                "5": self._previous_page,
+                "5": self._back_to_main_menu,
                 "0": sys.exit
             }
         ]
@@ -221,6 +221,11 @@ class MenuHandler:
     def _previous_page(self):
         self._page -= 1
         self._set_choices_number()
+    
+    def _back_to_main_menu(self):
+        """Return to main menu (page 0)"""
+        self._page = 0
+        self._set_choices_number()
 
     def _get_selection(self):
         return self._map[self._page][str(self._user_input)]
@@ -230,8 +235,8 @@ class MenuHandler:
         self._get_selection()()
 
     def _show_uninstall_menu(self):
-        """Affiche le menu de désinstallation."""
-        self._page = 3  # Page de désinstallation
+        """Display the uninstallation menu."""
+        self._page = 3  # Uninstallation page
         self._set_choices_number()
 
     def _show_uninstall_report(self):
