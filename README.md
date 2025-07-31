@@ -44,6 +44,17 @@ irm https://sunshine-aio.com/script.ps1 | iex
 > [!WARNING]
 > **Legacy Executable (DEPRECATED)**: The downloadable `.exe` files are no longer maintained and should not be used. Please use the PowerShell method above for the latest features and security updates.
 
+> [!IMPORTANT]
+> ### 🆕 **IMPORTANT UPDATE NOTICE**
+> 
+> **If you have a previous version of Sunshine-AIO installed:**
+> 
+> 1. **🗑️ Delete the old Sunshine-AIO folder completely**
+> 2. **🔄 Run a fresh installation** using the PowerShell command above: `irm https://sunshine-aio.com/script.ps1 | iex`
+> 3. **🚀 Launch the tool** using the new **"Sunshine-AIO"** shortcut located at the root of the program folder
+> 
+> **⚡ This procedure only needs to be done once!** Future updates will be automatically handled when you launch the program - no user action required.
+
 ---
 
 ## 🎯 Features

@@ -142,7 +142,7 @@ class SystemRequests():
         return file_name
 
     def restart_sunshine_as_service(self, service_name) -> bool:
-        # Arrêter le service Sunshine
+        # Stop Sunshine service
         try:
             print(f"\nStop Service {service_name}...")
             subprocess.run(['sc', 'stop', service_name], check=True,
@@ -151,10 +151,10 @@ class SystemRequests():
             print(f"\nError during the service shutdown {service_name}: {e}")
             return False
 
-        # Attendre quelques secondes pour s'assurer que le service est complètement arrêté
+        # Wait a few seconds to ensure service is completely stopped
         time.sleep(2)
 
-        # Démarrer le service Sunshine
+        # Start Sunshine service
         try:
             print(f"\nStart Service {service_name}...")
             subprocess.run(['sc', 'start', service_name], check=True,
@@ -167,7 +167,7 @@ class SystemRequests():
         return True
 
     def restart_sunshine_as_program(self, sunshine_executable_path) -> bool:
-        # Arrêter Sunshine
+        # Stop Sunshine
         try:
             subprocess.run(
                 [sunshine_executable_path, '--stop'], check=True)
@@ -175,7 +175,7 @@ class SystemRequests():
             print(f"\nError when stopping Sunshine: {e}")
             return False
 
-        # Attendre quelques secondes pour s'assurer que le processus est complètement arrêté
+        # Wait a few seconds to ensure process is completely stopped
         time.sleep(2)
 
         # Démarrer Sunshine

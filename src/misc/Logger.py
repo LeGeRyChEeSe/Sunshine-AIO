@@ -1,6 +1,8 @@
 import os
 import datetime
 import traceback
+import glob
+import sys
 from enum import Enum
 from typing import Optional
 
@@ -27,16 +29,23 @@ class Logger:
     - Optional file logging capability
     """
     
-    def __init__(self, enable_colors: bool = True, log_file: Optional[str] = None):
+    def __init__(self, enable_colors: bool = True, log_file: Optional[str] = None, max_log_files: int = 5):
         self.enable_colors = enable_colors and self._supports_color()
+        self.max_log_files = max_log_files
         
         # Auto-generate log file name if not provided
         if log_file is None:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            os.makedirs("logs", exist_ok=True)
-            self.log_file = f"logs/sunshine_aio_{timestamp}.log"
+            # Get project root directory (go up from src/misc/ to project root)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            logs_dir = os.path.join(project_root, "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            self.log_file = os.path.join(logs_dir, f"sunshine_aio_{timestamp}.log")
         else:
             self.log_file = log_file
+        
+        # Perform log rotation before initializing new log file
+        self._rotate_logs()
         
         # Initialize log file with session header
         self._initialize_log_file()
@@ -49,6 +58,33 @@ class Logger:
             os.environ.get('COLORTERM') in ('truecolor', '24bit') or
             'ANSICON' in os.environ
         )
+    
+    def _rotate_logs(self):
+        """Rotate log files, keeping only the most recent max_log_files"""
+        try:
+            # Find all existing log files in the correct directory
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            logs_dir = os.path.join(project_root, "logs")
+            log_pattern = os.path.join(logs_dir, "sunshine_aio_*.log")
+            log_files = glob.glob(log_pattern)
+            
+            if len(log_files) >= self.max_log_files:
+                # Sort by modification time (oldest first)
+                log_files.sort(key=lambda x: os.path.getmtime(x))
+                
+                # Remove oldest files to keep only (max_log_files - 1) files
+                # This leaves room for the new log file that will be created
+                files_to_remove = len(log_files) - (self.max_log_files - 1)
+                
+                for i in range(files_to_remove):
+                    try:
+                        os.remove(log_files[i])
+                        print(f"Removed old log file: {log_files[i]}")
+                    except Exception as e:
+                        print(f"Warning: Could not remove old log file {log_files[i]}: {e}")
+                        
+        except Exception as e:
+            print(f"Warning: Log rotation failed: {e}")
     
     def _initialize_log_file(self):
         """Initialize log file with session header"""
@@ -121,6 +157,17 @@ class Logger:
             print(f"\n{separator * width}")
             print(f"{LogLevel.HEADER.value[1]} {message.upper()}")
             print(f"{separator * width}\n")
+        
+        # Log header to file as well
+        if self.log_file:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    timestamp = self._get_timestamp()
+                    f.write(f"\n[{timestamp}] {separator * width}\n")
+                    f.write(f"[{timestamp}] {LogLevel.HEADER.value[1]} {message.upper()}\n")
+                    f.write(f"[{timestamp}] {separator * width}\n\n")
+            except Exception as e:
+                print(f"Warning: Could not write header to log file: {e}")
     
     def separator(self, char: str = "-", width: int = 50):
         """Print a separator line"""
@@ -128,6 +175,15 @@ class Logger:
             print(f"\033[90m{char * width}{LogLevel.RESET.value}")
         else:
             print(char * width)
+        
+        # Log separator to file as well
+        if self.log_file:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    timestamp = self._get_timestamp()
+                    f.write(f"[{timestamp}] {char * width}\n")
+            except Exception as e:
+                print(f"Warning: Could not write separator to log file: {e}")
     
     def step(self, step_number: int, total_steps: int, description: str):
         """Log a step in a multi-step process"""
@@ -175,10 +231,86 @@ class Logger:
     def get_log_file_path(self) -> str:
         """Get the current log file path"""
         return self.log_file
+    
+    def log_print(self, message: str):
+        """Log a print message to file (for capturing print() calls)"""
+        if self.log_file:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    timestamp = self._get_timestamp()
+                    f.write(f"[{timestamp}] {message}\n")
+            except Exception as e:
+                pass  # Silent fail to avoid recursion
+
+
+class LogCapture:
+    """Capture print statements and redirect them to log file (system logs only)"""
+    
+    def __init__(self, logger_instance):
+        self.logger = logger_instance
+        self.original_stdout = sys.stdout
+        # Patterns to filter out (menu/user interface messages)
+        self.filter_patterns = [
+            "press enter",
+            "choose option",
+            "select",
+            "menu",
+            "option",
+            "choice",
+            "input",
+            "═",
+            "─",
+            "│",
+            "┌",
+            "┐",
+            "└",
+            "┘",
+            "starting sunshine",
+            "application started",
+            "application session",
+            "print capture",
+            "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]", "[0]"
+        ]
+        
+    def write(self, message: str):
+        # Write to original stdout (console)
+        self.original_stdout.write(message)
+        
+        # Filter out menu/UI messages - only log system operations
+        if message.strip() and self._should_log(message.strip()):
+            self.logger.log_print(message.strip())
+    
+    def _should_log(self, message: str) -> bool:
+        """Determine if a message should be logged (system operations only)"""
+        message_lower = message.lower()
+        
+        # Skip empty or whitespace-only messages
+        if not message.strip():
+            return False
+            
+        # Skip messages containing UI/menu patterns
+        for pattern in self.filter_patterns:
+            if pattern in message_lower:
+                return False
+        
+        # Only log system operations (installations, downloads, configurations, errors)
+        system_keywords = [
+            "download", "install", "uninstall", "extract", "configur", 
+            "error", "warning", "success", "fail", "complet", "start",
+            "driver", "service", "registry", "file", "directory"
+        ]
+        
+        return any(keyword in message_lower for keyword in system_keywords)
+    
+    def flush(self):
+        self.original_stdout.flush()
 
 
 # Global logger instance
 logger = Logger()
+
+# Global log capture instance
+log_capture = None
 
 
 # Convenience functions for easy usage
@@ -240,3 +372,39 @@ def log_section_end(section_name: str):
 def get_log_file_path() -> str:
     """Get the current log file path"""
     return logger.get_log_file_path()
+
+
+def enable_system_log_capture():
+    """Enable capturing of system print statements to log file (no menu/UI)"""
+    global log_capture
+    if log_capture is None:
+        log_capture = LogCapture(logger)
+        sys.stdout = log_capture
+        log_info("System log capture enabled - tracking system operations only")
+
+
+def disable_system_log_capture():
+    """Disable capturing of system print statements"""
+    global log_capture
+    if log_capture is not None:
+        sys.stdout = log_capture.original_stdout
+        log_capture = None
+        log_info("System log capture disabled")
+
+
+def is_system_log_capture_enabled() -> bool:
+    """Check if system log capture is currently enabled"""
+    return log_capture is not None
+
+# Keep old function names for backwards compatibility
+def enable_print_capture():
+    """Legacy function - use enable_system_log_capture instead"""
+    enable_system_log_capture()
+
+def disable_print_capture():
+    """Legacy function - use disable_system_log_capture instead"""
+    disable_system_log_capture()
+
+def is_print_capture_enabled() -> bool:
+    """Legacy function - use is_system_log_capture_enabled instead"""
+    return is_system_log_capture_enabled()

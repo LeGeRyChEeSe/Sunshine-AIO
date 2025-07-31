@@ -153,6 +153,7 @@ class DownloadManager:
         self._choice: int
         self._sr = system_requests
         self._config = Config(self._sr)
+        self._tracker = get_installation_tracker(system_requests._base_path)
 
     @property
     def page(self):
@@ -316,7 +317,7 @@ class DownloadManager:
                 subprocess.run(
                     ["start", "/wait", os.path.abspath(sunshine_downloaded_file_path)], shell=True, check=True)
                 
-                # Enregistrer l'installation dans le tracker
+                # Register installation in tracker
                 sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
                 install_info = {
                     "version": "latest",
@@ -360,58 +361,29 @@ class DownloadManager:
             self.sr.clear_screen()
 
         log_progress("Downloading Virtual Display Driver from GitHub...")
-        file_name = self._download_file(vdd_download_url, vdd_download_pattern, from_github=True, extract=False)
+        file_name = self._download_file(vdd_download_url, vdd_download_pattern, from_github=True, extract=True)
 
-        # Since we disabled auto-extraction, file_name is now the zip file path
-        vdd_downloaded_file_path = file_name
+        # Now file_name is the extracted directory path
+        vdd_extracted_dir_path = file_name
 
-        if not os.path.exists(vdd_downloaded_file_path):
-            log_error("Virtual Display Driver download failed")
-            log_info(f"Expected path: {vdd_downloaded_file_path}")
+        if not os.path.exists(vdd_extracted_dir_path):
+            log_error("Virtual Display Driver extraction failed")
+            log_info(f"Expected path: {vdd_extracted_dir_path}")
             self.sr.pause()
             return
 
         if not install:
+            # Mode "download only" - garder le nom original
+            log_success(f"VDD Control downloaded successfully to: {vdd_extracted_dir_path}")
             self.sr.pause()
             return
 
-        import zipfile
+        # Mode "download and install" - renommer vers "VDD Control"
         import time
         vdd_final_path = os.path.join("tools", "VDD Control")
-        temp_extract_path = os.path.join("tools", "temp_vdd_extract")
         
-        # Remove existing directories if they exist
-        if os.path.exists(vdd_final_path):
-            try:
-                log_info("Removing existing VDD Control directory...")
-                shutil.rmtree(vdd_final_path)
-                time.sleep(1.0)
-            except Exception as e:
-                log_warning(f"Could not remove existing VDD Control directory: {e}")
-                
-        if os.path.exists(temp_extract_path):
-            try:
-                shutil.rmtree(temp_extract_path)
-                time.sleep(0.5)
-            except Exception as e:
-                log_warning(f"Could not remove temporary directory: {e}")
-        
-        # Step 1: Extract archive
-        log_step(1, 3, "Extracting VDD archive")
-        os.makedirs(temp_extract_path, exist_ok=True)
-        
-        try:
-            with zipfile.ZipFile(vdd_downloaded_file_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_extract_path)
-            time.sleep(1.0)
-            
-        except Exception as e:
-            log_error(f"ZIP extraction failed: {e}")
-            self.sr.pause()
-            return
-        
-        # Step 2: Locate VDD Control.exe
-        log_step(2, 3, "Locating VDD Control executable")
+        # Locate VDD Control.exe in extracted folder
+        log_step(1, 2, "Locating VDD Control executable")
         try:
             def find_vdd_control(path):
                 """Recursively find VDD Control.exe"""
@@ -420,47 +392,45 @@ class DownloadManager:
                         return os.path.join(root, "VDD Control.exe")
                 return None
             
-            vdd_control_exe_in_temp = find_vdd_control(temp_extract_path)
+            vdd_control_exe_in_extracted = find_vdd_control(vdd_extracted_dir_path)
             
-            if not vdd_control_exe_in_temp:
-                log_error("VDD Control.exe not found in the archive")
+            if not vdd_control_exe_in_extracted:
+                log_error("VDD Control.exe not found in the extracted files")
                 self.sr.pause()
                 return
             
-            original_folder_path = os.path.dirname(vdd_control_exe_in_temp)
+            original_folder_path = os.path.dirname(vdd_control_exe_in_extracted)
             
         except Exception as e:
-            log_error(f"Archive analysis failed: {e}")
+            log_error(f"VDD Control search failed: {e}")
             self.sr.pause()
             return
         
-        # Step 3: Setup VDD Control
-        log_step(3, 3, "Setting up VDD Control")
+        # Step 2: Renommer/déplacer vers "VDD Control"
+        log_step(2, 2, "Setting up VDD Control for installation")
         try:
-            shutil.copytree(original_folder_path, vdd_final_path)
-            time.sleep(0.5)
+            # Remove existing "VDD Control" folder if it exists
+            if os.path.exists(vdd_final_path):
+                log_info("Removing existing VDD Control directory...")
+                shutil.rmtree(vdd_final_path)
+                time.sleep(1.0)
             
-            # Clean up temp directory and original archive
-            try:
-                shutil.rmtree(temp_extract_path)
-                os.remove(vdd_downloaded_file_path)
-            except Exception as e:
-                log_warning(f"Could not clean up temporary files: {e}")
+            # Rename extracted folder to "VDD Control"
+            os.rename(vdd_extracted_dir_path, vdd_final_path)
+            log_success(f"VDD Control renamed to: {vdd_final_path}")
                 
         except Exception as e:
-            log_warning(f"Primary setup method failed: {e}")
-            # Try alternative method
+            log_warning(f"Rename failed, trying copy method: {e}")
+            # Alternative method: copy then remove original
             try:
                 if os.path.exists(vdd_final_path):
                     shutil.rmtree(vdd_final_path)
-                shutil.move(original_folder_path, vdd_final_path)
-                try:
-                    shutil.rmtree(temp_extract_path)
-                    os.remove(vdd_downloaded_file_path)
-                except:
-                    pass
+                shutil.copytree(original_folder_path, vdd_final_path)
+                # Remove original folder to avoid duplicates
+                shutil.rmtree(vdd_extracted_dir_path)
+                log_success(f"VDD Control copied to: {vdd_final_path}")
             except Exception as e2:
-                log_error(f"VDD Control setup failed: {e2}")
+                log_error(f"Configuration de VDD Control échouée: {e2}")
                 self.sr.pause()
                 return
         
@@ -494,19 +464,33 @@ class DownloadManager:
 
         input("\nAfter closing VDD Control, press Enter to continue...")
         
-        # Enregistrer l'installation dans le tracker
+        # Register installation in tracker with driver type detection
         try:
+            # Detect installed driver type
+            driver_info = self._detect_installed_vdd_driver()
+            
             install_info = {
                 "version": "latest",
                 "installer_type": "manual_vdd_control",
                 "files_created": [vdd_final_path],
+                "drivers_installed": driver_info.get("drivers", []),
+                "device_ids": driver_info.get("device_ids", []),
                 "custom_options": {
                     "control_executable": vdd_control_exe,
-                    "installation_method": "VDD Control extraction"
+                    "installation_method": "VDD Control extraction",
+                    "driver_type": driver_info.get("driver_type", "unknown"),
+                    "driver_path": driver_info.get("driver_path", ""),
+                    "device_id_detected": driver_info.get("device_id_detected", "")
                 }
             }
             self._tracker.track_installation("virtual_display_driver", vdd_final_path, install_info)
             log_info("Installation tracked for future uninstallation")
+            
+            if driver_info.get("driver_type"):
+                log_info(f"Driver type detected: {driver_info['driver_type']}")
+                if driver_info.get("device_id_detected"):
+                    log_info(f"Device ID detected: {driver_info['device_id_detected']}")
+                    
         except Exception as e:
             log_warning(f"Could not track installation: {e}")
         
@@ -515,6 +499,64 @@ class DownloadManager:
 
         if selective:
             self.sr.pause()
+
+    def _detect_installed_vdd_driver(self):
+        """
+        Detect VDD driver type installed by analyzing driver store.
+        
+        Returns:
+            dict: Informations sur le driver détecté
+        """
+        driver_info = {
+            "driver_type": "unknown",
+            "drivers": [],
+            "device_ids": [],
+            "driver_path": "",
+            "device_id_detected": ""
+        }
+        
+        try:
+            # List all installed drivers
+            result = subprocess.run(['pnputil', '/enum-drivers'], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                driver_patterns = [
+                    ("iddsampledriver.inf", "IddSampleDriver", "root\\iddsampledriver"),
+                    ("mttvdd.inf", "MttVDD", "root\\mttvdd")
+                ]
+                
+                for i, line in enumerate(lines):
+                    for pattern, driver_type, device_id in driver_patterns:
+                        if pattern in line.lower():
+                            # Search for driver information in surrounding lines
+                            for j in range(max(0, i-10), min(len(lines), i+10)):
+                                current_line = lines[j].lower()
+                                
+                                # Search for published name
+                                if 'published name' in current_line:
+                                    published_name = lines[j].split(':')[-1].strip()
+                                    driver_info["drivers"].append(published_name)
+                                
+                                # Search for driver path
+                                if 'driver package' in current_line or 'inf name' in current_line:
+                                    if pattern in current_line:
+                                        driver_info["driver_path"] = lines[j].split(':')[-1].strip()
+                            
+                            driver_info["driver_type"] = driver_type
+                            driver_info["device_ids"].append(device_id)
+                            driver_info["device_id_detected"] = device_id
+                            log_info(f"Driver VDD détecté: {driver_type} ({pattern})")
+                            break
+                    
+                    if driver_info["driver_type"] != "unknown":
+                        break
+            
+        except Exception as e:
+            log_warning(f"Error detecting VDD driver: {e}")
+        
+        return driver_info
 
     def download_svm(self, install: bool = True, selective: bool = False):
         log_section_start("Sunshine Virtual Monitor Setup")
@@ -728,8 +770,9 @@ class DownloadManager:
                 subprocess.run(
                     ["start", "/wait", os.path.abspath(playnite_downloaded_file_path)], shell=True, check=True)
                 
-                # Enregistrer l'installation dans le tracker
-                playnite_install_dir = self.sr.all_configs["Playnite"]["install_dir"]
+                # Register installation in tracker
+                # Playnite installe généralement dans AppData ou Program Files
+                playnite_install_dir = os.path.expandvars(r"%LOCALAPPDATA%\Playnite")
                 install_info = {
                     "version": "latest",
                     "installer_type": "official_installer",

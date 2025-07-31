@@ -10,7 +10,10 @@
 	"VirtualDisplayDriver": {
 		"download_url": "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/latest",
 		"download_pattern": "VDD.Control",
-		"device_id": "Root\\IddSampleDriver"
+		"device_id": "Root\\IddSampleDriver",
+		"device_id_new": "Root\\MttVDD",
+		"driver_inf_old": "IddSampleDriver.inf",
+		"driver_inf_new": "MttVDD.inf"
 	},
 	"Nefcon": {
 		"download_url": "https://github.com/nefarius/nefcon/releases/latest",
