@@ -7,7 +7,7 @@
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
 [![Stars](https://img.shields.io/github/stars/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/stargazers)
 [![Issues](https://img.shields.io/github/issues/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues)
-[![Version](https://img.shields.io/github/v/tag/LeGeRyChEeSe/Sunshine-AIO?label=version&color=blue)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
+[![Version](https://img.shields.io/github/v/tag/LeGeRyChEeSe/Sunshine-AIO?label=version&color=blue&cache=none)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
 
 **🎮 The Ultimate Sunshine Streaming Setup Tool for Windows 10/11**
 
