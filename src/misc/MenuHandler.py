@@ -1,9 +1,12 @@
 import json
 import sys
+import os
 from typing import List, Dict
 from misc.Config import DownloadManager
 from misc.SystemRequests import SystemRequests
 from misc.Uninstaller import SunshineAIOUninstaller
+from misc.Logger import log_success, log_info, log_warning, log_error, log_progress, log_header, get_log_file_path
+from misc.MenuDisplay import display_logo, display_version, display_menu, display_prompt, display_status, display_header, clear_screen
 from . import __version__
 
 
@@ -52,7 +55,8 @@ class MenuHandler:
                 "4": lambda: self._sr.install_windows_display_manager(selective=True),
                 "5": self._config.open_sunshine_settings,
                 "6": self._config.open_playnite,
-                "7": self._previous_page,
+                "7": self._open_vdd_control,
+                "8": self._previous_page,
                 "0": sys.exit
             },
             {
@@ -167,14 +171,13 @@ class MenuHandler:
         raise ValueError("No manual edit allowed.")
 
     def _print_logo(self) -> None:
-        with open(self._logo_menu_path, 'r') as logo_file:
-            lines = logo_file.readlines()
-
-        for line in lines:
-            print(line.rstrip())
+        display_logo()
 
     def _print_version(self) -> None:
-        print(f"{__version__}\n")
+        display_version(__version__)
+        # Show log file path (compact)
+        log_file = get_log_file_path()
+        log_info(f"Log: {os.path.basename(log_file)}")
 
     def _set_choices(self) -> None:
         with open(self._menu_choices_path, 'rb') as choices:
@@ -185,19 +188,30 @@ class MenuHandler:
         self._choices_number = len(self._choices[self._page]) - 1
 
     def _print_page(self) -> None:
-        print("\nMenu:")
-        for choice_number, choice in self._choices[self._page].items():
-            print(f"{choice_number}. {choice}")
+        # Determine menu title based on page
+        page_titles = {
+            0: "Main Menu",
+            1: "Extra Tools & Configuration", 
+            2: "Selective Download",
+            3: "Uninstall Components"
+        }
+        title = page_titles.get(self._page, "Menu Options")
+        display_menu(self._choices[self._page], title)
 
     def _get_user_input(self) -> bool:
         try:
-            user_input = int(input(f"\nPlease choose an option (0-{self._choices_number}): "))
+            user_input_str = display_prompt(self._choices_number)
+            user_input = int(user_input_str)
             if 0 <= user_input <= self._choices_number:
                 self._user_input = user_input
                 return True
+            else:
+                display_status("Invalid option. Please try again.", "error")
+                input("\nPress Enter to continue...")
+                return False
         except ValueError:
-            return False
-        else:
+            display_status("Please enter a valid number.", "error")
+            input("\nPress Enter to continue...")
             return False
 
     def _next_page(self):
@@ -221,68 +235,114 @@ class MenuHandler:
         self._set_choices_number()
 
     def _show_uninstall_report(self):
-        """Affiche le rapport de désinstallation."""
-        self._sr.clear_screen()
+        """Display uninstallation report."""
+        clear_screen()
+        display_header("Uninstallation Report", "System Analysis")
         print(self._uninstaller.generate_uninstall_report())
-        input("\nAppuyez sur Entrée pour continuer...")
+        input("\nPress Enter to continue...")
 
     def _show_installed_components(self):
-        """Affiche les composants installés."""
-        self._sr.clear_screen()
+        """Display installed components."""
+        clear_screen()
+        display_header("Installed Components", "System Status")
         installed = self._uninstaller.list_installed_components()
         
         if installed:
-            print("Composants Sunshine-AIO installés:")
+            log_info("Sunshine-AIO installed components:")
             for component in installed:
-                print(f"  ✓ {component}")
+                log_success(f"{component}")
         else:
-            print("Aucun composant Sunshine-AIO détecté sur ce système.")
+            log_warning("No Sunshine-AIO components detected on this system.")
         
-        input("\nAppuyez sur Entrée pour continuer...")
+        input("\nPress Enter to continue...")
 
     def _uninstall_specific_component(self):
-        """Désinstalle un composant spécifique."""
-        self._sr.clear_screen()
-        print("Composants disponibles pour désinstallation:")
+        """Uninstall a specific component."""
+        clear_screen()
+        display_header("Component Uninstaller", "Select component to remove")
         
-        components_list = list(self._uninstaller.components.values())
+        components_list = list(self._uninstaller._components.values())
+        
+        # Create options dict for display
+        options = {}
         for i, component in enumerate(components_list, 1):
-            print(f"  {i}. {component['name']}")
+            options[str(i)] = component['name']
+        options['0'] = "Cancel"
+        
+        display_menu(options, "Available Components")
         
         try:
-            choice = int(input(f"\nChoisissez un composant (1-{len(components_list)}): ")) - 1
-            if 0 <= choice < len(components_list):
-                component_name = components_list[choice]['name']
-                print(f"\nDésinstallation de {component_name}...")
+            choice_str = display_prompt(len(components_list))
+            choice = int(choice_str)
+            
+            if choice == 0:
+                return
+            elif 1 <= choice <= len(components_list):
+                component_name = components_list[choice - 1]['name']
+                log_progress(f"Uninstalling {component_name}...")
                 
                 if self._uninstaller.uninstall_component(component_name):
-                    print(f"✓ {component_name} désinstallé avec succès!")
+                    log_success(f"{component_name} uninstalled successfully!")
                 else:
-                    print(f"❌ Problème lors de la désinstallation de {component_name}")
+                    log_error(f"Issues encountered during {component_name} uninstallation")
             else:
-                print("Sélection invalide.")
+                display_status("Invalid selection.", "error")
         except ValueError:
-            print("Entrée invalide.")
+            display_status("Please enter a valid number.", "error")
         
-        input("\nAppuyez sur Entrée pour continuer...")
+        input("\nPress Enter to continue...")
 
     def _uninstall_all_components(self):
-        """Désinstalle tous les composants."""
-        self._sr.clear_screen()
-        print("ATTENTION: Cette opération va supprimer TOUS les composants Sunshine-AIO!")
-        print("Cette action est irréversible.")
+        """Uninstall all components."""
+        clear_screen()
+        display_header("Complete Uninstallation", "WARNING: This will remove ALL components")
         
+        log_warning("This operation will remove ALL Sunshine-AIO components!")
+        log_warning("This action is irreversible.")
+        
+        confirm = input("\nType 'CONFIRM' to proceed or press Enter to cancel: ")
+        if confirm.upper() != 'CONFIRM':
+            log_info("Uninstallation cancelled.")
+            input("\nPress Enter to continue...")
+            return
+        
+        log_progress("Starting complete uninstallation...")
         if self._uninstaller.uninstall_all():
-            print("\n✓ Désinstallation complète terminée avec succès!")
+            log_success("Complete uninstallation finished successfully!")
         else:
-            print("\n❌ Désinstallation terminée avec des avertissements.")
-            print("Consultez les messages ci-dessus pour plus de détails.")
+            log_warning("Uninstallation completed with warnings.")
+            log_info("Check the messages above for details.")
         
-        input("\nAppuyez sur Entrée pour continuer...")
+        input("\nPress Enter to continue...")
+
+    def _open_vdd_control(self):
+        """Opens VDD Control if available."""
+        import os
+        import subprocess
+        
+        clear_screen()
+        display_header("VDD Control Launcher", "Virtual Display Driver Configuration")
+        
+        vdd_control_path = os.path.join("tools", "VDD Control")
+        vdd_control_exe_path = os.path.join(vdd_control_path, "VDD Control.exe")
+        
+        if os.path.exists(vdd_control_exe_path):
+            log_progress("Launching VDD Control...")
+            try:
+                subprocess.Popen([vdd_control_exe_path], cwd=vdd_control_path)
+                log_success("VDD Control launched successfully!")
+            except Exception as e:
+                log_error(f"Failed to launch VDD Control: {e}")
+        else:
+            log_warning("VDD Control is not available.")
+            log_info("Please download and install Virtual Display Driver first.")
+            log_info(f"Expected location: {vdd_control_exe_path}")
+        
+        input("\nPress Enter to continue...")
 
     def print_menu(self):
         while True:
-            self._sr.clear_screen()
+            clear_screen()
             self._print_logo()
             self._print_version()
             self._print_page()
