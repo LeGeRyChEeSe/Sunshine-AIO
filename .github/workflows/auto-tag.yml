@@ -57,12 +57,14 @@ jobs:
             /^## $VERSION/ { found=1; next }
             found && /^## / { found=0 }
             found { print }
-          " CHANGELOG.md | sed '/^$/d' | head -20)
+          " CHANGELOG.md | sed '/^$/d' | head -20 | sed 's/`/\\`/g')
           
           if [ -n "$CHANGELOG_CONTENT" ]; then
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            {
+              echo "changelog<<EOF"
+              echo "$CHANGELOG_CONTENT"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
             echo "✅ Found changelog for version $VERSION"
           else
             echo "changelog=🆕 New version released with improvements and bug fixes." >> $GITHUB_OUTPUT
