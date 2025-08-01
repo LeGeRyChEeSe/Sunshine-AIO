@@ -2,15 +2,54 @@
 
 ## Latest Release
 
-### v0.3.1 (31 July 2025)
-- **Complete Localization**: All French text throughout the codebase has been translated to English
-- **Important Update Notice Added**: New prominent notice in README about clean reinstall requirement
-- Enhanced logging system with improved print capture capabilities
-- Better installation tracking with enhanced driver detection
+### v0.3.2 (1 August 2025)
+- **Enhanced Installation Detection**: Automatic detection and tracking of existing Sunshine installations
+- **Improved VDD Support**: Better support for both legacy (IddSampleDriver) and modern (MttVDD) Virtual Display Drivers
+- **Smart Installation Tracking**: Automatic discovery and registration of existing installations in tools directory
+- **Complete Uninstallation Cleanup**: Enhanced tools directory cleanup during full uninstallation process
 
 ---
 
 ## All Releases
+
+### v0.3.2 (1 August 2025)
+
+#### Added
+- **Automatic Sunshine Installation Detection**: New intelligent detection system that finds Sunshine installations via:
+  - Windows Registry scanning for official installation entries
+  - Common installation paths checking (Program Files, AppData, etc.)
+  - PATH environment variable analysis
+  - Real-time installation tracker updates with detected paths
+- **Enhanced VDD Driver Support**: Comprehensive Virtual Display Driver management:
+  - Support for both legacy (IddSampleDriver) and modern (MttVDD) drivers
+  - Automatic driver type detection using Windows driver store analysis
+  - Improved driver installation tracking and removal capabilities
+  - Better compatibility with different VDD versions
+- **Smart Installation Discovery**: Automatic scanning and registration of existing tools:
+  - Comprehensive tools directory scanning for installed components
+  - Auto-detection of Sunshine Virtual Monitor, VDD Control, and other tools
+  - Intelligent mapping of directory names to component types
+  - Automatic installation tracker updates for discovered components
+
+#### Enhanced
+- **Complete Uninstallation Process**: Improved full removal capabilities:
+  - Complete tools directory cleanup during full uninstallation
+  - Enhanced file and directory removal with better error handling
+  - Improved cleanup verification and reporting
+- **Installation Tracker System**: Enhanced tracking capabilities:
+  - New `force_update_detected_path()` method for manual path updates
+  - Better handling of auto-detected vs manually installed components
+  - Improved installation metadata storage and retrieval
+- **User Interface Improvements**: Better component status display:
+  - Enhanced installed components view with automatic detection
+  - Improved component discovery feedback and logging
+  - Better error handling and user feedback during detection
+
+#### Technical Improvements
+- Better error handling for installation path detection edge cases
+- Enhanced logging for installation detection and tracking processes
+- Improved code organization and method separation for detection logic
+- Enhanced Windows registry interaction with better error handling
 
 ### v0.3.1 (31 July 2025)
 

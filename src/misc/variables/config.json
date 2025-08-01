@@ -15,11 +15,6 @@
 		"driver_inf_old": "IddSampleDriver.inf",
 		"driver_inf_new": "MttVDD.inf"
 	},
-	"Nefcon": {
-		"download_url": "https://github.com/nefarius/nefcon/releases/latest",
-		"download_pattern": "nefcon",
-		"downloaded_dir_path": "tools\\nefcon*\\x64"
-	},
 	"SunshineVirtualMonitor": {
 		"download_url": "https://github.com/Cynary/sunshine-virtual-monitor/archive/refs/heads/main.zip",
 		"download_pattern": "sunshine-virtual-monitor-main.zip",

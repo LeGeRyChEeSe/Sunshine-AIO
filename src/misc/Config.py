@@ -32,8 +32,9 @@ class Config:
     def release(self):
         raise ValueError("No manual edit allowed.")
 
-    def _reset_global_prep_cmd(self, config_file: str = '', setup_sunvdm: str = '', teardown_sunvdm: str = '', sunvdm_log: str = ''):
-        sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
+    def _reset_global_prep_cmd(self, sunshine_install_dir: str = '', config_file: str = '', setup_sunvdm: str = '', teardown_sunvdm: str = '', sunvdm_log: str = ''):
+        if not sunshine_install_dir:
+            sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
 
         svm = self.sr.all_configs["SunshineVirtualMonitor"]
         svm_downloaded_dir_path = os.path.abspath(svm["downloaded_dir_path"])
@@ -115,11 +116,38 @@ class Config:
             return result.stderr
         return result.stdout.strip()
 
-    def configure_sunshine(self, selective: bool = False):
-        sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
+    def configure_sunshine(self, selective: bool = False, sunshine_path: str = None):
+        # Use provided path if available
+        if sunshine_path:
+            sunshine_install_dir = sunshine_path
+            log_info(f"Using provided Sunshine installation path: {sunshine_install_dir}")
+            # Always update tracker when path is provided
+            self._update_sunshine_tracker_if_needed(sunshine_install_dir)
+        else:
+            # Try to detect Sunshine installation path
+            detected_path = self._detect_sunshine_installation_path()
+            
+            if detected_path:
+                sunshine_install_dir = detected_path
+                log_info(f"Using detected Sunshine installation path: {sunshine_install_dir}")
+                # Always update tracker when path is detected
+                self._update_sunshine_tracker_if_needed(sunshine_install_dir)
+            else:
+                # Prompt user for path
+                user_path = self._prompt_for_sunshine_path()
+                if user_path:
+                    sunshine_install_dir = user_path
+                    log_info(f"Using user-provided Sunshine installation path: {sunshine_install_dir}")
+                    # Update tracker with user-provided path
+                    self._update_sunshine_tracker_if_needed(sunshine_install_dir)
+                else:
+                    # Fall back to default if user cancels
+                    sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
+                    log_warning(f"Using default Sunshine installation path: {sunshine_install_dir}")
+        
         sunshine_service = self.sr.all_configs["Sunshine"]["service"]
 
-        self._reset_global_prep_cmd()
+        self._reset_global_prep_cmd(sunshine_install_dir)
 
         if not self.sr.restart_sunshine_as_service(sunshine_service):
             if not self.sr.restart_sunshine_as_program(self.sr.find_file(os.path.join(sunshine_install_dir, "sunshine.exe"))):
@@ -141,6 +169,89 @@ class Config:
         print("\nOpening Playnite...")
         subprocess.run(f'start {playnite_url}', shell=True)
         self.sr.pause()
+
+    def _detect_sunshine_installation_path(self):
+        """
+        Detect the actual Sunshine installation path after installation.
+        
+        Returns:
+            str: Detected installation path, or None if not found
+        """
+        import winreg
+        
+        # Method 1: Check registry for installation path
+        registry_keys = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Sunshine"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Sunshine"),
+        ]
+        
+        for hkey, subkey_path in registry_keys:
+            try:
+                with winreg.OpenKey(hkey, subkey_path) as key:
+                    try:
+                        install_location = winreg.QueryValueEx(key, "InstallLocation")[0]
+                        if install_location and os.path.exists(install_location):
+                            sunshine_exe = os.path.join(install_location, "sunshine.exe")
+                            if os.path.exists(sunshine_exe):
+                                log_info(f"Found Sunshine installation via registry: {install_location}")
+                                return install_location
+                    except FileNotFoundError:
+                        continue
+            except Exception:
+                continue
+        
+        # Method 2: Check common installation directories
+        common_paths = [
+            os.path.expandvars(r"%PROGRAMFILES%\Sunshine"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Sunshine"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Sunshine"),
+            os.path.expandvars(r"%APPDATA%\Sunshine"),
+        ]
+        
+        for path in common_paths:
+            sunshine_exe = os.path.join(path, "sunshine.exe")
+            if os.path.exists(sunshine_exe):
+                log_info(f"Found Sunshine installation in common path: {path}")
+                return path
+        
+        # Method 3: Check PATH environment variable
+        import shutil
+        sunshine_exe_path = shutil.which("sunshine")
+        if sunshine_exe_path:
+            install_dir = os.path.dirname(sunshine_exe_path)
+            log_info(f"Found Sunshine installation via PATH: {install_dir}")
+            return install_dir
+        
+        return None
+
+    def _update_sunshine_tracker_if_needed(self, sunshine_install_dir: str):
+        """
+        Update installation tracker with detected Sunshine path if not already tracked.
+        
+        Parameters:
+            sunshine_install_dir (str): The detected installation directory
+        """
+        from misc.InstallationTracker import InstallationTracker
+        
+        # Initialize tracker if needed
+        if not hasattr(self, '_tracker'):
+            self._tracker = InstallationTracker()
+        
+        # Check if Sunshine is already tracked
+        tracked_paths = self._tracker.get_all_installation_paths("sunshine")
+        
+        if not tracked_paths or sunshine_install_dir not in tracked_paths:
+            log_info("Updating installation tracker with detected Sunshine path")
+            install_info = {
+                "version": "unknown",
+                "installer_type": "official_installer", 
+                "files_created": [sunshine_install_dir],
+                "registry_entries": [],
+                "shortcuts_created": []
+            }
+            
+            self._tracker.track_installation("sunshine", sunshine_install_dir, install_info)
+            log_success("Installation tracker updated with detected path")
 
 
 class DownloadManager:
@@ -186,6 +297,82 @@ class DownloadManager:
     @config.setter
     def config(self):
         raise ValueError("No manual edit allowed.")
+
+    def _detect_sunshine_installation_path(self):
+        """
+        Detect the actual Sunshine installation path after installation.
+        
+        Returns:
+            str: Detected installation path, or None if not found
+        """
+        import winreg
+        
+        # Method 1: Check registry for installation path
+        registry_keys = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Sunshine"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Sunshine"),
+        ]
+        
+        for hkey, subkey_path in registry_keys:
+            try:
+                with winreg.OpenKey(hkey, subkey_path) as key:
+                    try:
+                        install_location = winreg.QueryValueEx(key, "InstallLocation")[0]
+                        if install_location and os.path.exists(install_location):
+                            sunshine_exe = os.path.join(install_location, "sunshine.exe")
+                            if os.path.exists(sunshine_exe):
+                                return install_location.rstrip('\\')
+                    except FileNotFoundError:
+                        continue
+            except FileNotFoundError:
+                continue
+        
+        # Method 2: Check common installation paths
+        common_paths = [
+            r"C:\Program Files\Sunshine",
+            r"C:\Program Files (x86)\Sunshine",
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Sunshine"),
+            os.path.expandvars(r"%APPDATA%\Sunshine"),
+        ]
+        
+        # Method 3: Check user's Documents folder (where you installed)
+        documents_path = os.path.expandvars(r"%USERPROFILE%\Documents\Sunshine")
+        common_paths.append(documents_path)
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                sunshine_exe = os.path.join(path, "sunshine.exe")
+                if os.path.exists(sunshine_exe):
+                    return path
+        
+        # Method 4: Search for sunshine.exe in likely locations
+        search_paths = [
+            os.path.expandvars(r"%USERPROFILE%\Documents"),
+            r"C:\Program Files",
+            r"C:\Program Files (x86)",
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs"),
+        ]
+        
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                for root, dirs, files in os.walk(search_path):
+                    if "sunshine.exe" in files and "Sunshine" in root:
+                        return root
+                    # Limit search depth to avoid long searches
+                    if root.count(os.sep) - search_path.count(os.sep) >= 2:
+                        dirs.clear()
+        
+        return None
+
+    def _prompt_for_sunshine_path(self):
+        """
+        Prompt user for Sunshine installation path when automatic detection fails.
+        
+        Returns:
+            str: Validated Sunshine installation path, or None if user cancels
+        """
+        return None  # Disabled manual prompting - use detected or default paths only
+
 
     def _download_file(self, url: str, name_filter: str = "", from_github: bool = False, vdd_version: str = "0", extract: bool = True):
         download_url, file_name = "", name_filter
@@ -317,8 +504,16 @@ class DownloadManager:
                 subprocess.run(
                     ["start", "/wait", os.path.abspath(sunshine_downloaded_file_path)], shell=True, check=True)
                 
+                # Detect actual installation path
+                sunshine_install_dir = self._detect_sunshine_installation_path()
+                if not sunshine_install_dir:
+                    # Fallback to default path from config
+                    sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
+                    log_warning("Could not detect Sunshine installation path, using default")
+                else:
+                    log_info(f"Detected Sunshine installation at: {sunshine_install_dir}")
+                
                 # Register installation in tracker
-                sunshine_install_dir = self.sr.all_configs["Sunshine"]["install_dir"]
                 install_info = {
                     "version": "latest",
                     "installer_type": "official_installer",
@@ -346,7 +541,10 @@ class DownloadManager:
                 self.sr.all_configs["SunshineVirtualMonitor"]["downloaded_dir_path"])
             if not os.path.exists(svm_downloaded_dir_path):
                 self.download_svm()
-            self.config.configure_sunshine()
+            
+            # Use detected installation path for configuration
+            detected_path = self._detect_sunshine_installation_path()
+            self.config.configure_sunshine(sunshine_path=detected_path)
             print("\nSunshine has been well configured.")
         elif not install and selective:
             self.sr.pause()
@@ -503,6 +701,7 @@ class DownloadManager:
     def _detect_installed_vdd_driver(self):
         """
         Detect VDD driver type installed by analyzing driver store.
+        Supports both old (IddSampleDriver) and new (MttVDD) drivers.
         
         Returns:
             dict: Informations sur le driver détecté
@@ -516,42 +715,73 @@ class DownloadManager:
         }
         
         try:
+            # Get driver patterns from config
+            vdd_config = self.sr.all_configs.get("VirtualDisplayDriver", {})
+            
             # List all installed drivers
             result = subprocess.run(['pnputil', '/enum-drivers'], 
                                   capture_output=True, text=True)
             
             if result.returncode == 0:
                 lines = result.stdout.split('\n')
+                
+                # Support both old and new drivers
                 driver_patterns = [
-                    ("iddsampledriver.inf", "IddSampleDriver", "root\\iddsampledriver"),
-                    ("mttvdd.inf", "MttVDD", "root\\mttvdd")
+                    (vdd_config.get("driver_inf_old", "iddsampledriver.inf"), "IddSampleDriver", vdd_config.get("device_id", "root\\iddsampledriver")),
+                    (vdd_config.get("driver_inf_new", "mttvdd.inf"), "MttVDD", vdd_config.get("device_id_new", "root\\mttvdd"))
                 ]
+                
+                drivers_found = []
                 
                 for i, line in enumerate(lines):
                     for pattern, driver_type, device_id in driver_patterns:
-                        if pattern in line.lower():
+                        if pattern.lower() in line.lower():
                             # Search for driver information in surrounding lines
+                            published_name = None
+                            driver_path = ""
+                            
                             for j in range(max(0, i-10), min(len(lines), i+10)):
                                 current_line = lines[j].lower()
                                 
                                 # Search for published name
                                 if 'published name' in current_line:
                                     published_name = lines[j].split(':')[-1].strip()
-                                    driver_info["drivers"].append(published_name)
                                 
                                 # Search for driver path
                                 if 'driver package' in current_line or 'inf name' in current_line:
-                                    if pattern in current_line:
-                                        driver_info["driver_path"] = lines[j].split(':')[-1].strip()
+                                    if pattern.lower() in current_line:
+                                        driver_path = lines[j].split(':')[-1].strip()
                             
-                            driver_info["driver_type"] = driver_type
-                            driver_info["device_ids"].append(device_id)
-                            driver_info["device_id_detected"] = device_id
-                            log_info(f"Driver VDD détecté: {driver_type} ({pattern})")
+                            if published_name:
+                                drivers_found.append({
+                                    "pattern": pattern,
+                                    "driver_type": driver_type,
+                                    "device_id": device_id,
+                                    "published_name": published_name,
+                                    "driver_path": driver_path
+                                })
+                                log_info(f"Driver VDD détecté: {driver_type} ({pattern})")
+                
+                # Process found drivers
+                if drivers_found:
+                    # Use the most recent/preferred driver (MttVDD if available, else IddSampleDriver)
+                    preferred_driver = None
+                    for driver in drivers_found:
+                        if driver["driver_type"] == "MttVDD":
+                            preferred_driver = driver
                             break
                     
-                    if driver_info["driver_type"] != "unknown":
-                        break
+                    if not preferred_driver:
+                        preferred_driver = drivers_found[0]
+                    
+                    driver_info["driver_type"] = preferred_driver["driver_type"]
+                    driver_info["device_id_detected"] = preferred_driver["device_id"]
+                    driver_info["driver_path"] = preferred_driver["driver_path"]
+                    
+                    # Add all found drivers to the list
+                    for driver in drivers_found:
+                        driver_info["drivers"].append(driver["published_name"])
+                        driver_info["device_ids"].append(driver["device_id"])
             
         except Exception as e:
             log_warning(f"Error detecting VDD driver: {e}")
@@ -620,7 +850,9 @@ class DownloadManager:
             # Step 5: Configure Sunshine
             log_step(5, 5, "Configuring Sunshine for Virtual Monitor")
             try:
-                self.config.configure_sunshine()
+                # Use detected installation path for configuration
+                detected_path = self._detect_sunshine_installation_path()
+                self.config.configure_sunshine(sunshine_path=detected_path)
                 log_success("Sunshine configured for Virtual Monitor use")
             except Exception as e:
                 log_exception("Failed to configure Sunshine", e)

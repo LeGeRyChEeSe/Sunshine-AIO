@@ -250,6 +250,11 @@ class MenuHandler:
         """Display installed components."""
         clear_screen()
         display_header("Installed Components", "System Status")
+        
+        # Try to detect and update existing installations
+        log_info("Scanning system for existing installations...")
+        self._detect_and_update_installations()
+        
         installed = self._uninstaller.list_installed_components()
         
         if installed:
@@ -260,6 +265,82 @@ class MenuHandler:
             log_warning("No Sunshine-AIO components detected on this system.")
         
         input("\nPress Enter to continue...")
+
+    def _detect_and_update_installations(self):
+        """Detect existing installations and update tracker."""
+        log_info("Performing comprehensive installation detection...")
+        
+        # Detect Sunshine installation using DownloadManager's detection method
+        sunshine_path = self._dm._detect_sunshine_installation_path()
+        if sunshine_path:
+            log_info(f"Detected Sunshine installation at: {sunshine_path}")
+            self._config._update_sunshine_tracker_if_needed(sunshine_path)
+        else:
+            log_info("No Sunshine installation detected")
+        
+        # Detect VDD Control installation
+        vdd_control_path = os.path.join("tools", "VDD Control")
+        if os.path.exists(vdd_control_path):
+            vdd_control_exe = os.path.join(vdd_control_path, "VDD Control.exe")
+            if os.path.exists(vdd_control_exe):
+                log_info(f"Detected VDD Control at: {vdd_control_path}")
+                # Update tracker for VDD if not already tracked
+                if not self._uninstaller._tracker.is_tool_installed("virtual_display_driver"):
+                    install_info = {
+                        "version": "latest",
+                        "installer_type": "manual_vdd_control",
+                        "files_created": [vdd_control_path],
+                        "custom_options": {
+                            "control_executable": vdd_control_exe,
+                            "installation_method": "Detected existing VDD Control",
+                            "detected_path": vdd_control_path
+                        }
+                    }
+                    self._uninstaller._tracker.track_installation("virtual_display_driver", vdd_control_path, install_info)
+                    log_success("VDD Control installation tracked")
+        
+        # Detect other tools in tools/ directory
+        tools_dir = "tools"
+        if os.path.exists(tools_dir):
+            for item in os.listdir(tools_dir):
+                item_path = os.path.join(tools_dir, item)
+                if os.path.isdir(item_path):
+                    self._detect_and_track_tool_in_directory(item, item_path)
+        
+        log_success("Installation detection completed")
+    
+    def _detect_and_track_tool_in_directory(self, dir_name: str, dir_path: str):
+        """Detect and track a tool based on directory name and content."""
+        tool_mappings = {
+            "sunshine-virtual-monitor": "sunshine_virtual_monitor",
+            "multimonitortool": "multi_monitor_tool", 
+            "playnite watcher": "playnite_watcher",
+            "vsync toggle": "vsync_toggle"
+        }
+        
+        dir_name_lower = dir_name.lower()
+        tool_key = None
+        
+        # Find matching tool
+        for pattern, key in tool_mappings.items():
+            if pattern in dir_name_lower:
+                tool_key = key
+                break
+        
+        if tool_key and not self._uninstaller._tracker.is_tool_installed(tool_key):
+            log_info(f"Detected {dir_name} at: {dir_path}")
+            install_info = {
+                "version": "detected",
+                "installer_type": "auto_detected",
+                "files_created": [dir_path],
+                "custom_options": {
+                    "installation_method": "Auto-detected existing installation",
+                    "detected_path": dir_path,
+                    "original_name": dir_name
+                }
+            }
+            self._uninstaller._tracker.track_installation(tool_key, dir_path, install_info)
+            log_success(f"{dir_name} installation tracked")
 
     def _uninstall_specific_component(self):
         """Uninstall a specific component."""

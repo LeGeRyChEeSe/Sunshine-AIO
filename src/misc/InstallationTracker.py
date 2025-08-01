@@ -326,6 +326,36 @@ class InstallationTracker:
         except Exception as e:
             log_error(f"Failed to update installation info for {tool_name}: {e}")
             return False
+    
+    def force_update_detected_path(self, tool_name: str, detected_path: str) -> bool:
+        """Force update a tool's installation path with detected path"""
+        try:
+            if not os.path.exists(detected_path):
+                log_warning(f"Detected path does not exist: {detected_path}")
+                return False
+            
+            # Update or create installation entry
+            if tool_name not in self.installations:
+                self.installations[tool_name] = {
+                    "install_date": datetime.now().isoformat(),
+                    "version": "detected",
+                    "installer_type": "auto_detected"
+                }
+            
+            # Update path and metadata
+            old_path = self.installations[tool_name].get("install_path", "None")
+            self.installations[tool_name]["install_path"] = detected_path
+            self.installations[tool_name]["last_updated"] = datetime.now().isoformat()
+            self.installations[tool_name]["detection_method"] = "auto_detected"
+            
+            if old_path != detected_path:
+                log_info(f"Updated {tool_name} path: {old_path} -> {detected_path}")
+            
+            return self._save_installations()
+            
+        except Exception as e:
+            log_error(f"Failed to force update path for {tool_name}: {e}")
+            return False
 
 
 # Global instance

@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import winreg
 import time
-from pathlib import Path
 from typing import List, Dict, Optional
 from misc.SystemRequests import SystemRequests
 from misc.Logger import log_success, log_info, log_warning, log_error, log_progress, log_header
@@ -98,6 +97,7 @@ class SunshineAIOUninstaller:
             print("Components that will be removed:")
             for component in self._components.values():
                 print(f"  - {component['name']}")
+            print("  - Complete tools directory will be emptied")
             
             print("\n" + "="*50)
             response = input("Do you want to continue? (yes/no): ").lower().strip()
@@ -130,6 +130,9 @@ class SunshineAIOUninstaller:
             except Exception as e:
                 log_error(f"Error during uninstallation of {component['name']}: {e}")
                 success = False
+
+        # Clean up complete tools directory
+        self._cleanup_tools_directory()
 
         # Clean up Windows firewall rules
         self._cleanup_firewall_rules()
@@ -408,9 +411,36 @@ class SunshineAIOUninstaller:
                     except Exception:
                         pass
     
+    def _cleanup_tools_directory(self):
+        """Completely empty the tools directory during full uninstallation."""
+        tools_dir = "tools"
+        
+        if os.path.exists(tools_dir):
+            log_progress("Cleaning up tools directory...")
+            try:
+                # Remove all contents of tools directory
+                for item in os.listdir(tools_dir):
+                    item_path = os.path.join(tools_dir, item)
+                    try:
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                            log_success(f"Removed directory: {item}")
+                        else:
+                            os.remove(item_path)
+                            log_success(f"Removed file: {item}")
+                    except Exception as e:
+                        log_warning(f"Could not remove {item}: {e}")
+                
+                log_success("Tools directory cleaned successfully")
+            except Exception as e:
+                log_error(f"Error cleaning tools directory: {e}")
+        else:
+            log_info("Tools directory does not exist - nothing to clean")
+    
     def _uninstall_svm_advanced(self) -> bool:
         """
         Advanced uninstallation method for Sunshine Virtual Monitor.
+        Simply removes the SVM folder from tools directory.
         
         Returns
         -------
@@ -421,23 +451,32 @@ class SunshineAIOUninstaller:
         success = True
         
         try:
-            # 1. Try official uninstaller first (script)
-            if self._find_and_run_official_uninstaller("sunshine_virtual_monitor"):
-                log_success("Uninstallation via official script successful")
-                # Check if everything was removed
-                if self._verify_svm_uninstalled():
-                    log_success("Sunshine Virtual Monitor uninstallation completed successfully")
-                    return True
-                else:
-                    log_info("Cleaning up residuals after official script...")
-            else:
-                log_info("No uninstallation script found, manual procedure...")
+            # Sunshine Virtual Monitor has no official uninstaller
+            # It's just a collection of scripts and tools in the tools folder
+            log_info("Sunshine Virtual Monitor has no official uninstaller - removing files manually")
             
-            # 2. Manual procedure if necessary
-            # Remove files and directories
+            # Get all tracked paths for SVM
             files_to_remove = self._tracker.get_files_to_remove("sunshine_virtual_monitor")
-            if files_to_remove and not self._remove_files_and_directories(files_to_remove):
-                success = False
+            
+            # Add common SVM paths in tools directory
+            svm_paths = [
+                os.path.join("tools", "sunshine-virtual-monitor-main"),
+                os.path.join("tools", "Sunshine Virtual Monitor"),
+                os.path.join("tools", "multimonitortool-x64")
+            ]
+            
+            # Add tracked paths to removal list
+            for path in svm_paths:
+                if os.path.exists(path) and path not in files_to_remove:
+                    files_to_remove.append(path)
+            
+            # Remove all SVM related files and directories
+            if files_to_remove:
+                log_progress("Removing Sunshine Virtual Monitor files...")
+                if not self._remove_files_and_directories(files_to_remove):
+                    success = False
+            else:
+                log_info("No Sunshine Virtual Monitor files found to remove")
             
             if success:
                 log_success("Sunshine Virtual Monitor uninstallation completed successfully")
@@ -477,8 +516,42 @@ class SunshineAIOUninstaller:
         success = True
         
         try:
-            # 1. Try official uninstaller first
-            log_progress("Step 1/4: Searching for official uninstaller...")
+            # 1. Force stop all Playnite processes first (important!)
+            log_progress("Step 1/5: Force stopping all Playnite processes...")
+            playnite_processes = [
+                "Playnite.DesktopApp.exe", 
+                "Playnite.FullscreenApp.exe", 
+                "Playnite.exe",
+                "PlayniteUI.exe"
+            ]
+            
+            # First try gentle termination
+            for process_name in playnite_processes:
+                try:
+                    result = subprocess.run(['taskkill', '/IM', process_name], 
+                                         capture_output=True, text=True)
+                    if result.returncode == 0:
+                        log_info(f"Gently stopped process: {process_name}")
+                except Exception:
+                    pass
+            
+            # Wait a moment
+            time.sleep(2)
+            
+            # Then force kill any remaining
+            for process_name in playnite_processes:
+                try:
+                    result = subprocess.run(['taskkill', '/F', '/IM', process_name], 
+                                         capture_output=True, text=True)
+                    if result.returncode == 0:
+                        log_success(f"Force stopped process: {process_name}")
+                except Exception:
+                    pass
+            
+            log_success("All Playnite processes stopped")
+            
+            # 2. Try official uninstaller
+            log_progress("Step 2/5: Searching for official uninstaller...")
             if self._find_and_run_official_uninstaller("playnite"):
                 log_success("Official uninstaller completed")
                 # Check if everything was removed
@@ -490,20 +563,19 @@ class SunshineAIOUninstaller:
             else:
                 log_info("No official uninstaller found, proceeding with manual cleanup...")
             
-            # 2. Manual cleanup if needed
-            log_progress("Step 2/4: Stopping Playnite processes...")
-            processes = ["Playnite.DesktopApp.exe", "Playnite.FullscreenApp.exe", "Playnite.exe"]
-            if not self._stop_processes(processes):
-                success = False
+            # 3. Additional process cleanup after uninstaller
+            log_progress("Step 3/5: Final process cleanup...")
+            if not self._stop_processes(playnite_processes):
+                log_warning("Some Playnite processes may still be running")
             
-            # 3. Remove remaining files and folders
-            log_progress("Step 3/4: Removing installation files...")
+            # 4. Remove remaining files and folders
+            log_progress("Step 4/5: Removing installation files...")
             files_to_remove = self._tracker.get_files_to_remove("playnite")
             if files_to_remove and not self._remove_files_and_directories(files_to_remove):
                 success = False
             
-            # 4. Clean registry
-            log_progress("Step 4/4: Cleaning registry entries...")
+            # 5. Clean registry
+            log_progress("Step 5/5: Cleaning registry entries...")
             registry_keys = self._tracker.get_registry_keys("playnite")
             if registry_keys and not self._remove_registry_keys(registry_keys):
                 success = False
@@ -679,7 +751,7 @@ class SunshineAIOUninstaller:
     
     def _detect_vdd_devices(self):
         """
-        Detects all installed VDD devices.
+        Detects all installed VDD devices (both old IddSampleDriver and new MttVDD).
         
         Returns:
             list: List of VDD devices with their information
@@ -687,12 +759,17 @@ class SunshineAIOUninstaller:
         vdd_devices = []
         
         try:
-            # Use PowerShell to detect all VDD devices
-            ps_command = '''
-            Get-PnpDevice | Where-Object {
-                $_.FriendlyName -match "Virtual Display Driver|Generic Monitor.*VDD.*MTT" -or
-                $_.InstanceId -match "ROOT\\\\DISPLAY|DISPLAY\\\\MTT"
-            } | Select-Object FriendlyName, InstanceId, Status | ConvertTo-Json
+            # Get device IDs from config for both old and new drivers
+            vdd_config = self._sr.all_configs.get("VirtualDisplayDriver", {})
+            old_device_id = vdd_config.get("device_id", "Root\\IddSampleDriver")
+            new_device_id = vdd_config.get("device_id_new", "Root\\MttVDD")
+            
+            # Use PowerShell to detect all VDD devices (old and new)
+            ps_command = f'''
+            Get-PnpDevice | Where-Object {{
+                $_.FriendlyName -match "Virtual Display Driver|Generic Monitor.*VDD.*MTT|IDD Sample|Indirect Display" -or
+                $_.InstanceId -match "ROOT\\\\DISPLAY|DISPLAY\\\\MTT|{old_device_id.replace("\\", "\\\\")}|{new_device_id.replace("\\", "\\\\")}"
+            }} | Select-Object FriendlyName, InstanceId, Status | ConvertTo-Json
             '''
             
             result = subprocess.run([
@@ -708,28 +785,43 @@ class SunshineAIOUninstaller:
                     devices_data = [devices_data]
                 
                 for device in devices_data:
+                    instance_id = device.get('InstanceId', '')
+                    device_type = "Unknown"
+                    
+                    # Determine if it's old or new driver
+                    if old_device_id.lower() in instance_id.lower() or "iddsample" in instance_id.lower():
+                        device_type = "Old VDD (IddSampleDriver)"
+                    elif new_device_id.lower() in instance_id.lower() or "mtt" in instance_id.lower():
+                        device_type = "New VDD (MttVDD)"
+                    
                     vdd_devices.append({
                         'name': device.get('FriendlyName', 'Unknown'),
-                        'instance_id': device.get('InstanceId', ''),
-                        'status': device.get('Status', 'Unknown')
+                        'instance_id': instance_id,
+                        'status': device.get('Status', 'Unknown'),
+                        'type': device_type
                     })
                     
             log_info(f"Detected {len(vdd_devices)} VDD devices")
+            for device in vdd_devices:
+                log_info(f"  - {device['name']} ({device['type']}) - {device['status']}")
             
         except Exception as e:
             log_warning(f"Error detecting VDD devices: {e}")
             
-            # Fallback: use known patterns
-            known_patterns = [
-                'ROOT\\DISPLAY\\0000',
-                'DISPLAY\\MTT1337\\*'
+            # Fallback: use known patterns for both old and new
+            fallback_patterns = [
+                (old_device_id, "Old VDD (IddSampleDriver)"),
+                (new_device_id, "New VDD (MttVDD)"),
+                ('ROOT\\DISPLAY\\0000', "Generic VDD"),
+                ('DISPLAY\\MTT1337\\*', "MTT VDD")
             ]
             
-            for pattern in known_patterns:
+            for pattern, device_type in fallback_patterns:
                 vdd_devices.append({
                     'name': f'VDD Device ({pattern})',
                     'instance_id': pattern,
-                    'status': 'Unknown'
+                    'status': 'Unknown',
+                    'type': device_type
                 })
         
         return vdd_devices
@@ -893,6 +985,67 @@ class SunshineAIOUninstaller:
             log_error(f"Error executing official uninstaller: {e}")
             return False
     
+    def _find_uninstaller_in_registry_direct(self, tool_name: str) -> bool:
+        """
+        Quick direct search for known registry entries.
+        
+        Parameters
+        ----------
+        tool_name: str
+            The tool name to search for.
+            
+        Returns
+        -------
+        bool
+            True if uninstaller was found and executed successfully.
+        """
+        try:
+            
+            # Direct registry paths for known tools
+            direct_paths = {
+                'sunshine': [
+                    'Sunshine',
+                    'LizardByte Sunshine'
+                ],
+                'playnite': [
+                    'Playnite'
+                ]
+            }
+            
+            # Registry bases to check
+            registry_bases = [
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ]
+            
+            tool_paths = direct_paths.get(tool_name, [])
+            if not tool_paths:
+                return False
+                
+            log_info(f"Quick registry lookup for {tool_name}")
+            
+            for hkey, base_path in registry_bases:
+                for tool_path in tool_paths:
+                    try:
+                        full_path = f"{base_path}\\{tool_path}"
+                        with winreg.OpenKey(hkey, full_path) as key:
+                            try:
+                                display_name = winreg.QueryValueEx(key, "DisplayName")[0]
+                                uninstall_string = winreg.QueryValueEx(key, "UninstallString")[0]
+                                if uninstall_string:
+                                    log_success(f"Found {display_name} uninstaller directly!")
+                                    return self._execute_registry_uninstaller(uninstall_string, tool_name)
+                            except FileNotFoundError:
+                                continue
+                    except FileNotFoundError:
+                        continue
+                        
+            return False
+            
+        except Exception as e:
+            log_warning(f"Direct registry search failed: {e}")
+            return False
+    
     def _find_uninstaller_in_registry(self, tool_name: str) -> bool:
         """
         Searches for an uninstaller in Windows registry.
@@ -908,6 +1061,12 @@ class SunshineAIOUninstaller:
             True if an uninstaller was found and executed.
         """
         try:
+            # First try direct/fast search
+            if self._find_uninstaller_in_registry_direct(tool_name):
+                return True
+            
+            log_info(f"Direct search failed, starting comprehensive registry search for {tool_name}...")
+            log_warning("This may take up to 45 seconds - the system is not frozen, please wait...")
             # Mapping tool names to program names in registry
             registry_names = {
                 "sunshine": ["Sunshine", "LizardByte Sunshine"],
@@ -927,14 +1086,51 @@ class SunshineAIOUninstaller:
                 (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")
             ]
             
+            import time
+            start_time = time.time()
+            max_search_time = 15  # Maximum 15 seconds per registry key
+            
             for hkey, subkey_path in registry_keys:
                 try:
+                    log_progress(f"Searching registry: {subkey_path}")
+                    search_start = time.time()
+                    
                     with winreg.OpenKey(hkey, subkey_path) as key:
-                        # Enumerate all subkeys with limit to prevent hanging
+                        # Get total number of subkeys first
+                        try:
+                            key_info = winreg.QueryInfoKey(key)
+                            total_subkeys = key_info[0]
+                            log_info(f"Found {total_subkeys} entries to check")
+                            
+                            # Adjust max entries based on total and time limit
+                            if total_subkeys > 100:
+                                max_entries = min(50, total_subkeys)  # Limit to 50 for large registries
+                                log_info(f"Large registry detected, limiting search to {max_entries} entries")
+                            else:
+                                max_entries = total_subkeys
+                                
+                        except Exception:
+                            total_subkeys = 0
+                            max_entries = 50
+                        
+                        # Enumerate all subkeys with limit and progress feedback
                         i = 0
-                        max_entries = 200  # Prevent infinite loops
+                        progress_step = max(1, max_entries // 5)  # Show progress every 20%
+                        
                         while i < max_entries:
+                            # Check timeout
+                            current_time = time.time()
+                            if current_time - search_start > max_search_time:
+                                log_warning(f"Registry search timeout after {max_search_time}s, moving to next key")
+                                break
+                            
                             try:
+                                # Show progress every so often
+                                if i % progress_step == 0 and i > 0:
+                                    progress_pct = int((i / max_entries) * 100)
+                                    elapsed = current_time - search_start
+                                    log_info(f"Registry search progress: {progress_pct}% ({i}/{max_entries}) - {elapsed:.1f}s")
+                                
                                 subkey_name = winreg.EnumKey(key, i)
                                 with winreg.OpenKey(key, subkey_name) as subkey:
                                     try:
@@ -943,20 +1139,30 @@ class SunshineAIOUninstaller:
                                         # Check if this is our program
                                         for name in names_to_search:
                                             if name.lower() in display_name.lower():
+                                                log_info(f"Found potential match: {display_name}")
                                                 try:
                                                     uninstall_string = winreg.QueryValueEx(subkey, "UninstallString")[0]
                                                     if uninstall_string:
                                                         log_progress(f"Uninstaller found in registry: {uninstall_string}")
                                                         return self._execute_registry_uninstaller(uninstall_string, tool_name)
                                                 except FileNotFoundError:
+                                                    log_warning(f"No UninstallString found for {display_name}")
                                                     continue
                                     except FileNotFoundError:
                                         continue
                                 i += 1
                             except OSError:
                                 break
+                            except Exception as e:
+                                # Skip problematic entries
+                                i += 1
+                                continue
+                                
+                    elapsed_time = time.time() - search_start
+                    log_info(f"Registry search completed in {elapsed_time:.1f}s")
+                    
                 except Exception as e:
-                    log_info(f"Registry search failed for {subkey_path}: {e}")
+                    log_warning(f"Registry search failed for {subkey_path}: {e}")
                     continue
             
             return False
@@ -1303,45 +1509,58 @@ class SunshineAIOUninstaller:
             else:
                 log_info("No VDD devices detected")
             
-            # 2. Remove driver from driver store
-            log_progress("Removing driver from driver store...")
+            # 2. Remove driver from driver store (both old and new versions)
+            log_progress("Removing VDD drivers from driver store...")
             try:
-                # List drivers to find iddsampledriver or mttvdd
+                # Get driver info from config
+                vdd_config = self._sr.all_configs.get("VirtualDisplayDriver", {})
+                
+                # Support both old and new driver patterns
+                driver_patterns = [
+                    (vdd_config.get("driver_inf_old", "iddsampledriver.inf"), "Old VDD Driver (IddSampleDriver)"),
+                    (vdd_config.get("driver_inf_new", "mttvdd.inf"), "New VDD Driver (MttVDD)")
+                ]
+                
+                # List all installed drivers
                 result = subprocess.run(['pnputil', '/enum-drivers'], 
                                       capture_output=True, text=True)
                 
                 if result.returncode == 0:
                     lines = result.stdout.split('\n')
-                    driver_patterns = ['iddsampledriver.inf', 'mttvdd.inf']
                     drivers_found = []
                     
-                    for pattern in driver_patterns:
+                    for driver_inf, driver_desc in driver_patterns:
                         published_name = None
+                        driver_inf_lower = driver_inf.lower()
+                        
                         for i, line in enumerate(lines):
-                            if pattern in line.lower():
-                                # Search for published name in previous lines
-                                for j in range(max(0, i-10), i):
+                            if driver_inf_lower in line.lower():
+                                # Search for published name in surrounding lines
+                                for j in range(max(0, i-10), min(len(lines), i+10)):
                                     if 'published name' in lines[j].lower():
                                         published_name = lines[j].split(':')[-1].strip()
                                         break
                                 if published_name:
-                                    drivers_found.append((pattern, published_name))
-                                break
+                                    drivers_found.append((driver_inf, driver_desc, published_name))
+                                    break
                     
                     if drivers_found:
-                        for driver_pattern, published_name in drivers_found:
-                            log_progress(f"Removing driver {driver_pattern} ({published_name})...")
+                        for driver_inf, driver_desc, published_name in drivers_found:
+                            log_progress(f"Removing {driver_desc} ({published_name})...")
                             result = subprocess.run([
                                 'pnputil', '/delete-driver', published_name, '/uninstall'
                             ], capture_output=True, text=True)
                             
                             if result.returncode == 0:
-                                log_success(f"Driver {driver_pattern} removed successfully")
+                                log_success(f"{driver_desc} removed successfully")
                             else:
-                                log_warning(f"Failed to remove driver {driver_pattern}")
+                                log_warning(f"Failed to remove {driver_desc}: {result.stderr.strip()}")
                                 success = False
                     else:
-                        log_warning("No VDD drivers (IddSampleDriver.inf or MttVDD.inf) found in driver store")
+                        log_info("No VDD drivers found in driver store (system may be clean)")
+                else:
+                    log_error("Failed to enumerate drivers from driver store")
+                    success = False
                         
             except Exception as e:
                 log_error(f"Error removing driver: {e}")
@@ -1385,14 +1604,26 @@ class SunshineAIOUninstaller:
                 log_warning(f"Remaining VDD file detected: {path}")
                 return False
         
-        # 2. Check driver store
+        # 2. Check driver store for both old and new drivers
         try:
             result = subprocess.run(['pnputil', '/enum-drivers'], 
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 output_lower = result.stdout.lower()
-                if 'iddsampledriver.inf' in output_lower or 'mttvdd.inf' in output_lower:
-                    log_warning("VDD driver still present in driver store")
+                
+                # Get driver patterns from config
+                vdd_config = self._sr.all_configs.get("VirtualDisplayDriver", {})
+                old_driver = vdd_config.get("driver_inf_old", "iddsampledriver.inf").lower()
+                new_driver = vdd_config.get("driver_inf_new", "mttvdd.inf").lower()
+                
+                remaining_drivers = []
+                if old_driver in output_lower:
+                    remaining_drivers.append(f"Old driver ({old_driver})")
+                if new_driver in output_lower:
+                    remaining_drivers.append(f"New driver ({new_driver})")
+                
+                if remaining_drivers:
+                    log_warning(f"VDD drivers still present in driver store: {', '.join(remaining_drivers)}")
                     return False
         except Exception:
             pass
