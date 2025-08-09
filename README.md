@@ -13,7 +13,7 @@
 
 *One script to install everything you need for the perfect game streaming experience*
 
-[🚀 Quick Start](#-quick-start) • [🎯 Features](#-features) • [📖 Documentation](#-documentation) • [🤝 Support](#-support)
+[🚀 Quick Start](#-quick-start) • [🎯 Features](#-features) • [📖 Documentation](#-documentation) • [📚 Wiki](../../wiki) • [🤝 Support](#-support)
 
 ---
 
@@ -40,6 +40,8 @@ irm https://sunshine-aio.com/script.ps1 | iex
 1. **Right-click** Windows Start button → Select **PowerShell** or **Terminal**
 2. **Copy and paste** the command above
 3. **Press Enter** and follow the interactive prompts ✨
+
+> **📚 Need help?** Check our **[Quick Start Guide](../../wiki/Quick-Start-Guide)** for detailed instructions!
 
 > [!WARNING]
 > **Legacy Executable (DEPRECATED)**: The downloadable `.exe` files are no longer maintained and should not be used. Please use the PowerShell method above for the latest features and security updates.
@@ -109,6 +111,20 @@ irm https://sunshine-aio.com/script.ps1 | iex
 
 ## 📖 Documentation
 
+> [!TIP]
+> **📚 Complete Documentation Available!**
+> 
+> **[🌐 Visit our comprehensive Wiki →](../../wiki)**
+> 
+> **Quick Links:**
+> - **[⚡ Quick Start Guide](../../wiki/Quick-Start-Guide)** - Get running in 5 minutes
+> - **[🔧 Installation Guide](../../wiki/Installation-Guide)** - Detailed setup instructions  
+> - **[❓ FAQ](../../wiki/FAQ)** - Frequently asked questions
+> - **[🛠️ Troubleshooting](../../wiki/Troubleshooting)** - Fix common issues
+> - **[🎮 Steam Deck Setup](../../wiki/Steam-Deck-Guide)** - Complete Steam Deck guide
+> - **[🎯 Playnite Setup](../../wiki/Playnite-Setup)** - Game library management
+> - **[🌟 HDR Configuration](../../wiki/HDR-Configuration)** - High Dynamic Range setup
+
 <details>
 <summary><strong>🔧 Build from Source</strong></summary>
 
@@ -174,7 +190,7 @@ compile_executable.bat
 
 ### 🐛 **Having Issues?**
 
-[📋 Check Existing Issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) • [🆕 Report New Issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new)
+**[🛠️ Troubleshooting Guide](../../wiki/Troubleshooting)** • [📋 Check Existing Issues](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues) • [🆕 Report New Issue](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues/new)
 
 ### 🌐 **Official Website**
 **[sunshine-aio.com](https://sunshine-aio.com)**
