@@ -1,0 +1,1 @@
+"""GUI Localization Module"""

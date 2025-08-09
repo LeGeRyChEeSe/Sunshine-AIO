@@ -1,1 +1,41 @@
-{}
+{
+  "sunshine": {
+    "install_path": "C:\\Program Files\\Sunshine",
+    "install_date": "2025-08-05T16:22:11.723976",
+    "version": "latest",
+    "installer_type": "official_installer",
+    "custom_options": {
+      "installer_path": "C:\\Projets\\Sunshine-AIO\\tools\\sunshine-windows-installer.exe",
+      "installation_method": "Windows installer"
+    },
+    "files_created": [
+      "C:\\Program Files\\Sunshine"
+    ],
+    "registry_entries": [
+      "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sunshine"
+    ],
+    "services_created": [
+      "SunshineService"
+    ],
+    "drivers_installed": []
+  },
+  "virtual_display_driver": {
+    "install_path": "tools\\VDD Control",
+    "install_date": "2025-08-05T16:50:05.095583",
+    "version": "latest",
+    "installer_type": "manual_vdd_control",
+    "custom_options": {
+      "control_executable": "tools\\VDD Control\\VDD Control.exe",
+      "installation_method": "VDD Control extraction",
+      "driver_type": "unknown",
+      "driver_path": "",
+      "device_id_detected": ""
+    },
+    "files_created": [
+      "tools\\VDD Control"
+    ],
+    "registry_entries": [],
+    "services_created": [],
+    "drivers_installed": []
+  }
+}
