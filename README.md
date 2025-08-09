@@ -8,6 +8,13 @@
 [![Stars](https://img.shields.io/github/stars/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/stargazers)
 [![Issues](https://img.shields.io/github/issues/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/issues)
 [![Version](https://img.shields.io/github/v/tag/LeGeRyChEeSe/Sunshine-AIO?label=version&color=blue&cache=none)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
+[![Wiki](https://img.shields.io/badge/📚_Wiki-Available-brightgreen?style=flat)](../../wiki)
+
+[![Platform](https://img.shields.io/badge/Platform-Windows_10/11-0078d4?logo=windows&logoColor=white)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
+[![License](https://img.shields.io/github/license/LeGeRyChEeSe/Sunshine-AIO?color=green)](LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/commits/main)
+[![HDR](https://img.shields.io/badge/HDR-Supported-brightgreen)](../../wiki/HDR-Configuration)
+[![Website](https://img.shields.io/badge/Website-sunshine--aio.com-ff6b35)](https://sunshine-aio.com)
 
 **🎮 The Ultimate Sunshine Streaming Setup Tool for Windows 10/11**
 
