@@ -2,15 +2,29 @@
 
 ## Latest Release
 
-### v0.3.2 (1 August 2025)
-- **Enhanced Installation Detection**: Automatic detection and tracking of existing Sunshine installations
-- **Improved VDD Support**: Better support for both legacy (IddSampleDriver) and modern (MttVDD) Virtual Display Drivers
-- **Smart Installation Tracking**: Automatic discovery and registration of existing installations in tools directory
-- **Complete Uninstallation Cleanup**: Enhanced tools directory cleanup during full uninstallation process
+### v0.3.3 (10 August 2025)
+- **Enhanced Application Branding**: Upgraded to new high-quality application icons (sunshine-aio.png/ico)
+- **Improved Visual Consistency**: Updated all icon references across codebase and documentation
+- **Professional Appearance**: Enhanced visual quality with crisp, scalable icon formats
+- **Maintained Compatibility**: All existing functionality preserved with improved presentation
 
 ---
 
 ## All Releases
+
+### v0.3.3 (10 August 2025)
+
+#### Added
+- **High-Quality Application Icons**: New sunshine-aio.png and sunshine-aio.ico with improved visual quality
+- **Enhanced Visual Branding**: Professional-grade icons with multiple size support (16x16 to 512x512)
+
+#### Changed
+- **Updated Icon References**: All codebase references now point to new icon files
+- **Improved README Display**: Logo updated to use high-quality PNG format
+- **Compiler Configuration**: Build process updated to use new icon assets
+
+#### Removed
+- **Legacy Icon Files**: Removed outdated sunshine_aio.ico and sunshine_aio.jpg files
 
 ### v0.3.2 (1 August 2025)
 
