@@ -1,1 +1,1 @@
-py -m nuitka --onefile --standalone --windows-uac-admin --windows-icon-from-ico=..\ressources\sunshine-aio.ico --include-data-dir=..\src\misc=misc --include-data-dir=..\ressources=ressources --output-filename=Sunshine-AIO.exe --output-dir=produced --remove-output ..\src\main.py
+py -m nuitka --onefile --standalone --windows-uac-admin --windows-icon-from-ico=..\ressources\sunshine_aio.ico --include-data-dir=..\src\misc=misc --include-data-dir=..\ressources=ressources --output-filename=Sunshine-AIO.exe --output-dir=produced --remove-output ..\src\main.py

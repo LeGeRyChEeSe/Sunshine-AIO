@@ -2,7 +2,7 @@
 
 # 🌞 Sunshine-AIO
 
-<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/ressources/sunshine-aio.png?raw=true" height="300" alt="Sunshine-AIO Logo" />
+<img src="https://github.com/LeGeRyChEeSe/Sunshine-AIO/blob/main/ressources/sunshine_aio.jpg?raw=true" height="300" alt="Sunshine-AIO Logo" />
 
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=LeGeRyChEeSe.Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO)
 [![Stars](https://img.shields.io/github/stars/LeGeRyChEeSe/Sunshine-AIO)](https://github.com/LeGeRyChEeSe/Sunshine-AIO/stargazers)
