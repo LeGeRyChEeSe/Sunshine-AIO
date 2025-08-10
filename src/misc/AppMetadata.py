@@ -85,10 +85,10 @@ class AppMetadata:
     def _find_icon_path(self) -> Optional[str]:
         """Find the Sunshine-AIO icon file"""
         possible_paths = [
-            "ressources/sunshine-aio.ico",  # From project root
-            "../ressources/sunshine-aio.ico",  # From src directory
-            "../../ressources/sunshine-aio.ico",  # From src/misc directory
-            os.path.join(os.path.dirname(__file__), "../../ressources/sunshine-aio.ico"),
+            "ressources/sunshine_aio.ico",  # From project root
+            "../ressources/sunshine_aio.ico",  # From src directory
+            "../../ressources/sunshine_aio.ico",  # From src/misc directory
+            os.path.join(os.path.dirname(__file__), "../../ressources/sunshine_aio.ico"),
         ]
         
         for path in possible_paths:
