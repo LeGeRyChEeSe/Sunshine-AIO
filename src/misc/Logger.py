@@ -29,9 +29,10 @@ class Logger:
     - Optional file logging capability
     """
     
-    def __init__(self, enable_colors: bool = True, log_file: Optional[str] = None, max_log_files: int = 5):
+    def __init__(self, enable_colors: bool = True, log_file: Optional[str] = None, max_log_files: int = 5, log_type: str = "app"):
         self.enable_colors = enable_colors and self._supports_color()
         self.max_log_files = max_log_files
+        self.log_type = log_type
         
         # Auto-generate log file name if not provided
         if log_file is None:
@@ -40,14 +41,28 @@ class Logger:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             logs_dir = os.path.join(project_root, "logs")
             os.makedirs(logs_dir, exist_ok=True)
-            self.log_file = os.path.join(logs_dir, f"sunshine_aio_{timestamp}.log")
+            
+            # Different log file names based on type
+            if log_type == "script":
+                self.log_file = os.path.join(logs_dir, f"sunshine_aio_script_{timestamp}.log")
+            else:
+                # For app type, check if we're running as admin and reuse existing log
+                existing_log = self._find_existing_app_log(logs_dir)
+                if existing_log and self._is_admin_rerun():
+                    self.log_file = existing_log
+                    self._append_to_existing = True
+                else:
+                    self.log_file = os.path.join(logs_dir, f"sunshine_aio_app_{timestamp}.log")
+                    self._append_to_existing = False
         else:
             self.log_file = log_file
+            self._append_to_existing = False
         
-        # Perform log rotation before initializing new log file
-        self._rotate_logs()
+        # Perform log rotation before initializing new log file (only if not appending)
+        if not getattr(self, '_append_to_existing', False):
+            self._rotate_logs()
         
-        # Initialize log file with session header
+        # Initialize log file with session header (or append admin section)
         self._initialize_log_file()
         
     def _supports_color(self) -> bool:
@@ -58,6 +73,29 @@ class Logger:
             os.environ.get('COLORTERM') in ('truecolor', '24bit') or
             'ANSICON' in os.environ
         )
+    
+    def _find_existing_app_log(self, logs_dir: str) -> Optional[str]:
+        """Find the most recent app log file from today"""
+        try:
+            today = datetime.datetime.now().strftime("%Y%m%d")
+            app_log_pattern = os.path.join(logs_dir, f"sunshine_aio_app_{today}_*.log")
+            app_logs = glob.glob(app_log_pattern)
+            
+            if app_logs:
+                # Return the most recent app log from today
+                app_logs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                return app_logs[0]
+            return None
+        except Exception:
+            return None
+    
+    def _is_admin_rerun(self) -> bool:
+        """Check if this is likely an admin rerun (simple heuristic)"""
+        try:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            return False
     
     def _rotate_logs(self):
         """Rotate log files, keeping only the most recent max_log_files"""
@@ -87,14 +125,27 @@ class Logger:
             print(f"Warning: Log rotation failed: {e}")
     
     def _initialize_log_file(self):
-        """Initialize log file with session header"""
+        """Initialize log file with session header or append admin section"""
         try:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 80 + "\n")
-                f.write(f"SUNSHINE-AIO EXECUTION LOG\n")
-                f.write(f"Session started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Log file: {self.log_file}\n")
-                f.write("=" * 80 + "\n\n")
+            if getattr(self, '_append_to_existing', False):
+                # Append admin section to existing log
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write("\n" + "=" * 80 + "\n")
+                    f.write("ADMIN ELEVATION - CONTINUING SESSION\n")
+                    f.write(f"Admin session started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write("=" * 80 + "\n\n")
+            else:
+                # Create new log file
+                mode = 'w' if self.log_type == "app" else 'w'
+                with open(self.log_file, mode, encoding='utf-8') as f:
+                    f.write("=" * 80 + "\n")
+                    if self.log_type == "script":
+                        f.write("SUNSHINE-AIO SCRIPT LOG\n")
+                    else:
+                        f.write("SUNSHINE-AIO APPLICATION LOG\n")
+                    f.write(f"Session started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Log file: {self.log_file}\n")
+                    f.write("=" * 80 + "\n\n")
         except Exception as e:
             print(f"Warning: Could not initialize log file: {e}")
     
@@ -306,8 +357,8 @@ class LogCapture:
         self.original_stdout.flush()
 
 
-# Global logger instance
-logger = Logger()
+# Global logger instance (will be initialized as app logger by default)
+logger = Logger(log_type="app")
 
 # Global log capture instance
 log_capture = None
@@ -408,3 +459,14 @@ def disable_print_capture():
 def is_print_capture_enabled() -> bool:
     """Legacy function - use is_system_log_capture_enabled instead"""
     return is_system_log_capture_enabled()
+
+
+def create_script_logger() -> Logger:
+    """Create a dedicated logger for PowerShell script usage"""
+    return Logger(log_type="script")
+
+
+def get_script_log_path() -> str:
+    """Get the path for script logging (for PowerShell script integration)"""
+    script_logger = create_script_logger()
+    return script_logger.get_log_file_path()
