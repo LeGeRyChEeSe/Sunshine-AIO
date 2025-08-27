@@ -765,11 +765,11 @@ class SunshineAIOUninstaller:
             new_device_id = vdd_config.get("device_id_new", "Root\\MttVDD")
             
             # Use PowerShell to detect all VDD devices (old and new)
-            ps_command = f'''
-            Get-PnpDevice | Where-Object {{
+            ps_command = '''
+            Get-PnpDevice | Where-Object {
                 $_.FriendlyName -match "Virtual Display Driver|Generic Monitor.*VDD.*MTT|IDD Sample|Indirect Display" -or
-                $_.InstanceId -match "ROOT\\\\DISPLAY|DISPLAY\\\\MTT|{old_device_id.replace("\\", "\\\\")}|{new_device_id.replace("\\", "\\\\")}"
-            }} | Select-Object FriendlyName, InstanceId, Status | ConvertTo-Json
+                $_.InstanceId -match "ROOT\\\\DISPLAY|DISPLAY\\\\MTT|ROOT\\\\DISPLAY\\\\0000|DISPLAY\\\\MTT1001\\\\1001"
+            } | Select-Object FriendlyName, InstanceId, Status | ConvertTo-Json
             '''
             
             result = subprocess.run([

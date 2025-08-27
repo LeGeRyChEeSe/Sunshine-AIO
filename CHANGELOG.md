@@ -2,15 +2,21 @@
 
 ## Latest Release
 
-### v0.3.3 (10 August 2025)
-- **Enhanced Application Branding**: Upgraded to new high-quality application icons (sunshine-aio.png/ico)
-- **Improved Visual Consistency**: Updated all icon references across codebase and documentation
-- **Professional Appearance**: Enhanced visual quality with crisp, scalable icon formats
-- **Maintained Compatibility**: All existing functionality preserved with improved presentation
+### v0.3.5 (27 August 2025)
+- **Critical Bug Fix**: Fixed Python SyntaxError in Uninstaller module that prevented application startup
+- **Python 3.10/3.11 Compatibility**: Resolved f-string backslash expression issue in PowerShell command generation
+- **Improved Stability**: Application now launches successfully on all supported Python versions
 
 ---
 
 ## All Releases
+
+### v0.3.5 (27 August 2025)
+
+#### Fixed
+- **SyntaxError Resolution**: Fixed invalid f-string expression with backslashes in `Uninstaller.py:771`
+- **PowerShell Command Generation**: Updated VDD device detection to use static pattern matching instead of dynamic f-string interpolation
+- **Python Version Compatibility**: Ensured application works correctly on Python 3.10.11 and 3.11.9
 
 ### v0.3.3 (10 August 2025)
 
