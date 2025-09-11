@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, timedelta
 import requests
 
-from misc.Logger import log_info, log_error, log_warning, log_success
+from misc.Logger import log_info, log_error, log_warning, log_success, log_progress
 
 
 class LibraryManager:
@@ -141,21 +141,21 @@ class LibraryManager:
     
     def _fetch_repository_metadata(self) -> Optional[Dict[str, Any]]:
         """
-        Fetch metadata from the remote repository.
+        Fetch metadata from the remote repository using the static API.
         
         Returns:
             Dict containing repository metadata or None on failure
         """
         try:
-            # Construct API URL for repository contents
-            api_url = self._get_repository_api_url()
+            # Use the static API endpoint instead of GitHub contents API
+            api_url = self._get_catalog_api_url()
             
             headers = {
                 'User-Agent': self.config['user_agent'],
-                'Accept': 'application/vnd.github.v3+json'
+                'Accept': 'application/json'
             }
             
-            log_info(f"Fetching metadata from: {api_url}")
+            log_info(f"Fetching tools catalog from: {api_url}")
             
             response = requests.get(
                 api_url,
@@ -165,9 +165,9 @@ class LibraryManager:
             
             response.raise_for_status()
             
-            # Parse repository structure and build metadata
-            contents = response.json()
-            metadata = self._parse_repository_contents(contents)
+            # Parse the catalog response directly
+            catalog_data = response.json()
+            metadata = self._parse_catalog_data(catalog_data)
             
             return metadata
             
@@ -181,74 +181,102 @@ class LibraryManager:
             log_error(f"Unexpected error fetching metadata: {e}")
             return None
     
-    def _get_repository_api_url(self) -> str:
+    def _get_catalog_api_url(self) -> str:
         """
-        Convert repository URL to GitHub API URL.
+        Get the catalog API URL for the static JSON API.
         
         Returns:
-            str: GitHub API URL for repository contents
+            str: URL for the catalog.json API endpoint
         """
         # Extract owner and repo from GitHub URL
         if "github.com/" in self.repository_url:
             parts = self.repository_url.replace("https://github.com/", "").split("/")
             if len(parts) >= 2:
                 owner, repo = parts[0], parts[1]
-                return f"https://api.github.com/repos/{owner}/{repo}/contents"
+                return f"https://raw.githubusercontent.com/{owner}/{repo}/main/api/catalog.json"
         
         # Fallback - assume it's already an API URL
-        return self.repository_url
+        return f"{self.repository_url}/raw/main/api/catalog.json"
     
-    def _parse_repository_contents(self, contents: List[Dict]) -> Dict[str, Any]:
+    def _parse_catalog_data(self, catalog_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Parse repository contents and build metadata structure.
+        Parse catalog data from the static API and build metadata structure.
         
         Args:
-            contents: Repository contents from GitHub API
+            catalog_data: Catalog data from the static API
             
         Returns:
             Dict containing parsed metadata
         """
-        metadata = {
-            'last_updated': datetime.now().isoformat(),
-            'tools': {},
-            'categories': {},
-            'repository_info': {
-                'url': self.repository_url,
-                'total_tools': 0
-            }
-        }
-        
         try:
-            # Look for tool directories or metadata files
-            for item in contents:
-                if item['type'] == 'dir':
-                    # Assume each directory is a tool
-                    tool_id = item['name']
-                    metadata['tools'][tool_id] = {
-                        'id': tool_id,
-                        'name': tool_id.replace('_', ' ').replace('-', ' ').title(),
-                        'path': item['path'],
-                        'download_url': item.get('download_url'),
-                        'size': item.get('size', 0),
-                        'last_modified': item.get('updated_at', datetime.now().isoformat()),
-                        'category': 'General',  # Default category
-                        'description': f'Community tool: {tool_id}',
-                        'version': '1.0.0',  # Default version
-                        'validated': False
-                    }
+            # The catalog already contains the right structure, we just need to adapt it
+            tools = {}
+            categories = {}
+            
+            # Process tools from the catalog
+            for tool_data in catalog_data.get('tools', []):
+                tool_id = tool_data.get('name', tool_data.get('id', 'unknown'))
                 
-                elif item['name'].endswith('.json') and 'metadata' in item['name'].lower():
-                    # Found metadata file - could contain tool information
-                    log_info(f"Found potential metadata file: {item['name']}")
+                # Convert catalog tool format to our internal format
+                tools[tool_id] = {
+                    'id': tool_id,
+                    'name': tool_data.get('name', tool_id),
+                    'description': tool_data.get('description', ''),
+                    'version': tool_data.get('version', '1.0.0'),
+                    'category': tool_data.get('category', 'General'),
+                    'tags': tool_data.get('tags', []),
+                    'author': tool_data.get('maintainer', {}).get('name', 'Unknown'),
+                    'repository': tool_data.get('repository', ''),
+                    'documentation': tool_data.get('documentation', ''),
+                    'license': tool_data.get('license', 'Unknown'),
+                    'platforms': tool_data.get('platforms', []),
+                    'language': tool_data.get('language', 'Unknown'),
+                    'added_date': tool_data.get('added_date', datetime.now().isoformat()),
+                    'contributed_by': tool_data.get('contributed_by', 'Community'),
+                    'validated': tool_data.get('status') == 'verified',
+                    'quality_score': tool_data.get('quality_score', 0),
+                    'github_stars': tool_data.get('github_stars', 0),
+                    'github_forks': tool_data.get('github_forks', 0),
+                    'last_activity': tool_data.get('last_activity', ''),
+                    'verification_status': tool_data.get('status', 'pending')
+                }
+                
+                # Track categories
+                category = tool_data.get('category', 'General')
+                if category not in categories:
+                    categories[category] = {
+                        'name': category,
+                        'tools': []
+                    }
+                categories[category]['tools'].append(tool_id)
             
-            metadata['repository_info']['total_tools'] = len(metadata['tools'])
+            metadata = {
+                'last_updated': catalog_data.get('generated_at', datetime.now().isoformat()),
+                'tools': tools,
+                'categories': categories,
+                'repository_info': {
+                    'url': self.repository_url,
+                    'total_tools': len(tools),
+                    'catalog_version': catalog_data.get('version', '1.0.0'),
+                    'api_version': catalog_data.get('api_version', '1.0')
+                }
+            }
             
-            log_info(f"Parsed repository contents: {len(metadata['tools'])} tools found")
+            log_info(f"Parsed catalog data: {len(tools)} tools found across {len(categories)} categories")
             return metadata
             
         except Exception as e:
-            log_error(f"Error parsing repository contents: {e}")
-            return metadata
+            log_error(f"Error parsing catalog data: {e}")
+            # Return empty structure on error
+            return {
+                'last_updated': datetime.now().isoformat(),
+                'tools': {},
+                'categories': {},
+                'repository_info': {
+                    'url': self.repository_url,
+                    'total_tools': 0
+                }
+            }
     
     def _update_cache(self, metadata: Dict[str, Any]) -> None:
         """
@@ -366,6 +394,16 @@ class LibraryManager:
         Returns:
             List of category names
         """
+        if not self._initialized:
+            if not self.initialize():
+                return []
+        
+        # Use categories from metadata if available
+        categories_data = self._tools_cache.get('categories', {})
+        if categories_data:
+            return sorted(list(categories_data.keys()))
+        
+        # Fallback: extract categories from tools
         tools = self.get_available_tools()
         categories = set()
         
@@ -374,6 +412,58 @@ class LibraryManager:
             categories.add(category)
         
         return sorted(list(categories))
+    
+    def get_tools_by_category(self, category: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all tools in a specific category.
+        
+        Args:
+            category: Category name to filter by
+            
+        Returns:
+            Dict of tools in the category
+        """
+        tools = self.get_available_tools()
+        return {
+            tool_id: tool_info 
+            for tool_id, tool_info in tools.items()
+            if tool_info.get('category', 'General') == category
+        }
+    
+    def get_tools_sorted_by_quality(self, limit: int = None) -> List[Dict[str, Any]]:
+        """
+        Get tools sorted by quality score (highest first).
+        
+        Args:
+            limit: Maximum number of tools to return
+            
+        Returns:
+            List of tools sorted by quality score
+        """
+        tools = self.get_available_tools()
+        
+        # Convert to list and sort by quality score
+        tools_list = list(tools.values())
+        tools_list.sort(key=lambda x: x.get('quality_score', 0), reverse=True)
+        
+        if limit:
+            tools_list = tools_list[:limit]
+            
+        return tools_list
+    
+    def get_verified_tools(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get only verified/validated tools.
+        
+        Returns:
+            Dict of verified tools
+        """
+        tools = self.get_available_tools()
+        return {
+            tool_id: tool_info 
+            for tool_id, tool_info in tools.items()
+            if tool_info.get('validated', False) or tool_info.get('verification_status') == 'verified'
+        }
     
     def is_tool_available(self, tool_id: str) -> bool:
         """
