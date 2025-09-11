@@ -11,4 +11,6 @@ src/gui_main.py
 GUI_README.md
 ISSUES_TO_CLOSE.md
 WIKI_SETUP_INSTRUCTIONS.md
-wiki_content/
+wiki_content/test_env/
+*.pyc
+__pycache__/

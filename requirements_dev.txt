@@ -9,3 +9,10 @@ urllib3>=2.2.2
 zstandard>=0.23.0
 psutil>=6.0.0
 colorama>=0.4.6
+
+# Testing dependencies
+pytest>=7.4.0
+pytest-mock>=3.11.1
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.1
+responses>=0.23.3

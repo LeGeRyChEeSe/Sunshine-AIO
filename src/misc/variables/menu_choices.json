@@ -8,6 +8,7 @@
 			"6": "Download and configure Playnite Watcher",
 			"7": "Extra",
 			"8": "Uninstall Components",
+			"9": "Community Library",
 			"0": "Exit"
 	},
 	{
@@ -38,6 +39,22 @@
 		"3": "Uninstall Specific Component",
 		"4": "Uninstall ALL Components",
 		"5": "Go Back",
+		"0": "Exit"
+	},
+	{
+		"1": "Browse All Tools",
+		"2": "Browse by Category",
+		"3": "Advanced Search",
+		"4": "Filter Tools",
+		"5": "Manage Favorites",
+		"6": "Compare Tools",
+		"7": "Installation History",
+		"8": "Library Statistics",
+		"9": "Export & Import",
+		"10": "Tool Recommendations",
+		"11": "Synchronize Library",
+		"12": "Library Settings",
+		"13": "Go Back",
 		"0": "Exit"
 	}
 ]

@@ -2,6 +2,7 @@ import json
 import sys
 import os
 from typing import List, Dict, Optional, Any
+from datetime import datetime
 from misc.Config import DownloadManager
 from misc.SystemRequests import SystemRequests
 from misc.Uninstaller import SunshineAIOUninstaller
@@ -12,6 +13,12 @@ from . import __version__
 # Import library components with graceful fallback
 try:
     from library import LibraryManager, initialize_library_system, ToolInfo
+    from library.search_engine import ToolSearchEngine
+    from library.filters import ToolFilter
+    from library.favorites import FavoritesManager
+    from library.display_helper import ToolDisplayHelper
+    from library.history import InstallationHistory
+    from library.config_manager import LibraryConfigManager
     LIBRARY_AVAILABLE = True
 except ImportError as e:
     log_warning(f"Community library not available: {e}")
@@ -51,6 +58,12 @@ class MenuHandler:
         # Initialize community library components
         self._library_manager: Optional[LibraryManager] = None
         self._library_components: Optional[Dict[str, Any]] = None
+        self._search_engine: Optional[ToolSearchEngine] = None
+        self._tool_filter: Optional[ToolFilter] = None
+        self._favorites_manager: Optional[FavoritesManager] = None
+        self._display_helper: Optional[ToolDisplayHelper] = None
+        self._installation_history: Optional[InstallationHistory] = None
+        self._config_manager: Optional[LibraryConfigManager] = None
         self._initialize_library_system()
         self._map = [
             {
@@ -98,12 +111,17 @@ class MenuHandler:
             {
                 "1": self._browse_all_tools,
                 "2": self._browse_by_category,
-                "3": self._search_tools,
-                "4": self._show_recent_tools,
-                "5": self._show_favorites,
-                "6": self._sync_library,
-                "7": self._library_settings,
-                "8": self._previous_page,
+                "3": self._advanced_search_interface,
+                "4": self._filter_tools_interface,
+                "5": self._manage_favorites_interface,
+                "6": self._tool_comparison_interface,
+                "7": self._installation_history_interface,
+                "8": self._library_statistics_interface,
+                "9": self._export_import_interface,
+                "10": self._tool_recommendations_interface,
+                "11": self._sync_library,
+                "12": self._library_settings,
+                "13": self._previous_page,
                 "0": sys.exit
             }
         ]
@@ -487,6 +505,17 @@ class MenuHandler:
             )
             
             self._library_manager = self._library_components['library_manager']
+            
+            # Initialize Phase 4 advanced components
+            if self._library_manager:
+                self._search_engine = ToolSearchEngine(self._library_manager)
+                self._tool_filter = ToolFilter()
+                self._favorites_manager = FavoritesManager(self._sr._base_path)
+                self._display_helper = ToolDisplayHelper()
+                self._installation_history = InstallationHistory(self._sr._base_path)
+                self._config_manager = LibraryConfigManager(self._sr._base_path)
+                log_info("Advanced library features initialized")
+            
             log_success("Community library system initialized successfully")
             
         except Exception as e:
@@ -899,40 +928,1067 @@ class MenuHandler:
         # choice == 'b' or any other input goes back
 
     def _install_community_tool(self, tool: Any) -> None:
-        """Install a community tool (placeholder implementation)."""
+        """Install a community tool with full implementation."""
         tool_name = getattr(tool, 'name', 'Unknown')
+        tool_id = getattr(tool, 'tool_id', getattr(tool, 'id', 'unknown'))
         tool_category = getattr(tool, 'category', 'Unknown')
         tool_author = getattr(tool, 'author', 'Unknown')
+        tool_version = getattr(tool, 'version', '1.0.0')
+        tool_description = getattr(tool, 'description', 'No description available')
         
         clear_screen()
         display_header("Community Library", f"Install {tool_name}")
         
-        log_info("Tool Installation Process")
-        log_info("═" * 50)
-        log_info(f"Tool: {tool_name}")
+        # Display tool information
+        log_info("Tool Installation")
+        log_info("═" * 60)
+        log_info(f"Tool Name: {tool_name}")
+        log_info(f"Tool ID: {tool_id}")
+        log_info(f"Version: {tool_version}")
         log_info(f"Category: {tool_category}")
         log_info(f"Author: {tool_author}")
+        log_info(f"Description: {tool_description}")
+        log_info("═" * 60)
         
         print()
-        log_warning("Community tool installation is currently under development")
+        
+        # Check if tool is already installed
+        installation_status = self._dm.get_installation_status(tool_id) if hasattr(self._dm, 'get_installation_status') else None
+        if installation_status and installation_status.get('status') == 'installed':
+            log_warning(f"Tool '{tool_name}' appears to be already installed.")
+            print()
+            choice = input("Do you want to reinstall? (y/N): ").strip().lower()
+            if choice not in ['y', 'yes']:
+                log_info("Installation cancelled by user.")
+                input("\nPress Enter to continue...")
+                return
+        
+        # Security confirmation
+        print()
+        log_warning("SECURITY NOTICE")
+        log_warning("Community tools are third-party software not officially verified by Sunshine-AIO.")
+        log_warning("Install only tools from trusted sources and authors.")
+        log_warning("The installation will include integrity checks where possible.")
         
         print()
-        log_info("The installation process will include:")
-        log_info("• Security validation and integrity checks")
-        log_info("• Automatic dependency resolution")
-        log_info("• Safe installation to designated directories")
-        log_info("• Integration with Sunshine-AIO uninstaller")
-        log_info("• Automatic updates when available")
+        choice = input("Do you want to proceed with installation? (y/N): ").strip().lower()
+        if choice not in ['y', 'yes']:
+            log_info("Installation cancelled by user.")
+            input("\nPress Enter to continue...")
+            return
+        
+        try:
+            print()
+            log_info("Starting installation process...")
+            log_info("• Validating tool information")
+            log_info("• Checking system compatibility")
+            log_info("• Downloading tool files")
+            log_info("• Performing security checks")
+            log_info("• Installing to tools directory")
+            log_info("• Registering with uninstaller")
+            
+            print()
+            log_progress("Initializing installation system...")
+            
+            # Use the DownloadManager's community tool download functionality
+            success = self._dm.download_community_tool(tool_id, install=True)
+            
+            if success:
+                print()
+                log_success("Installation completed successfully!")
+                log_info("Tool has been installed and registered with the system.")
+                log_info("You can uninstall it later using the uninstall menu.")
+                
+                # Check if we should open tool directory
+                print()
+                choice = input("Open tools directory to view installed files? (y/N): ").strip().lower()
+                if choice in ['y', 'yes']:
+                    tools_dir = os.path.join(self._sr._base_path, "tools", tool_id)
+                    if os.path.exists(tools_dir):
+                        os.startfile(tools_dir)
+                    else:
+                        log_warning("Tools directory not found")
+                
+            else:
+                print()
+                log_error("Installation failed!")
+                log_error("Please check the log file for detailed error information.")
+                log_info("You can try:")
+                log_info("• Checking your internet connection")
+                log_info("• Refreshing the community library")
+                log_info("• Trying again later")
+                
+        except ImportError as e:
+            print()
+            log_error("Installation system not available!")
+            log_error(f"Error: {e}")
+            log_info("This indicates that the community library system is not properly configured.")
+            log_info("Please check your Sunshine-AIO installation.")
+            
+        except Exception as e:
+            print()
+            log_error("Installation failed with error!")
+            log_error(f"Error: {e}")
+            log_info("Please check the log file for more details.")
+            
+        print()
+        input("Press Enter to continue...")
+
+    # ===== PHASE 4: ADVANCED UI FEATURES =====
+
+    def _advanced_search_interface(self) -> None:
+        """Interactive advanced search interface with real-time suggestions."""
+        if not self._is_library_available() or not self._search_engine:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Advanced Search")
+        
+        while True:
+            try:
+                log_info("Advanced Search Options:")
+                log_info("═" * 50)
+                log_info("1. Text Search (name, description)")
+                log_info("2. Category Search")
+                log_info("3. Tag Search")
+                log_info("4. Combined Search")
+                log_info("5. View Search History")
+                log_info("6. Clear Search Cache")
+                log_info("0. Back to Library Menu")
+                
+                print()
+                choice = input("Select search type: ").strip()
+                
+                if choice == '1':
+                    self._text_search_interface()
+                elif choice == '2':
+                    self._category_search_interface()
+                elif choice == '3':
+                    self._tag_search_interface()
+                elif choice == '4':
+                    self._combined_search_interface()
+                elif choice == '5':
+                    self._show_search_history()
+                elif choice == '6':
+                    self._search_engine.clear_cache()
+                    log_success("Search cache cleared")
+                    input("\nPress Enter to continue...")
+                elif choice == '0':
+                    return
+                else:
+                    log_error("Invalid option")
+                    input("\nPress Enter to continue...")
+                    
+            except Exception as e:
+                log_error(f"Search error: {e}")
+                input("\nPress Enter to continue...")
+
+    def _text_search_interface(self) -> None:
+        """Text search with suggestions and fuzzy matching."""
+        try:
+            clear_screen()
+            display_header("Advanced Search", "Text Search")
+            
+            query = input("Enter search query: ").strip()
+            if not query:
+                return
+            
+            # Show suggestions
+            if len(query) >= 2:
+                suggestions = self._search_engine.get_search_suggestions(query)
+                if suggestions:
+                    log_info("\nSuggestions:")
+                    for i, suggestion in enumerate(suggestions[:5], 1):
+                        log_info(f"  {i}. {suggestion}")
+                    
+                    use_suggestion = input("\nUse suggestion (1-5) or press Enter to continue: ").strip()
+                    if use_suggestion.isdigit() and 1 <= int(use_suggestion) <= len(suggestions):
+                        query = suggestions[int(use_suggestion) - 1]
+            
+            # Perform search
+            log_progress(f"Searching for '{query}'...")
+            results = self._search_engine.search_by_name(query, fuzzy=True)
+            
+            if results:
+                formatted_results = self._display_helper.format_search_results(results, query)
+                print(formatted_results)
+                self._handle_search_results(results)
+            else:
+                log_warning("No results found")
+                input("\nPress Enter to continue...")
+                
+        except Exception as e:
+            log_error(f"Text search error: {e}")
+            input("\nPress Enter to continue...")
+
+    def _filter_tools_interface(self) -> None:
+        """Advanced filtering interface with multiple criteria."""
+        if not self._is_library_available() or not self._tool_filter:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Advanced Filtering")
+        
+        try:
+            # Get all tools
+            tools_dict = self._library_manager.get_available_tools()
+            tools = [self._dict_to_tool_info(data, tool_id) for tool_id, data in tools_dict.items()]
+            
+            if not tools:
+                log_warning("No tools available for filtering")
+                input("\nPress Enter to continue...")
+                return
+            
+            # Build filter criteria interactively
+            filters = {}
+            
+            while True:
+                clear_screen()
+                display_header("Advanced Filtering", "Configure Filters")
+                
+                log_info("Current Filters:")
+                log_info("═" * 40)
+                if filters:
+                    for key, value in filters.items():
+                        log_info(f"  {key}: {value}")
+                else:
+                    log_info("  No filters applied")
+                
+                print()
+                log_info("Filter Options:")
+                log_info("1. Size Filter")
+                log_info("2. Platform Filter")
+                log_info("3. Trust Score Filter")
+                log_info("4. Category Filter")
+                log_info("5. Tag Filter")
+                log_info("6. Last Updated Filter")
+                log_info("7. Apply Filters")
+                log_info("8. Clear All Filters")
+                log_info("0. Back")
+                
+                choice = input("\nSelect option: ").strip()
+                
+                if choice == '1':
+                    max_size = input("Maximum size (e.g., 50MB): ").strip()
+                    if max_size:
+                        filters['max_size'] = max_size
+                elif choice == '2':
+                    platform = input("Platform (windows/linux/mac): ").strip()
+                    if platform:
+                        filters['platforms'] = [platform]
+                elif choice == '3':
+                    min_trust = input("Minimum trust score (0-10): ").strip()
+                    try:
+                        filters['trust_score_min'] = float(min_trust)
+                    except ValueError:
+                        log_error("Invalid trust score")
+                elif choice == '4':
+                    categories = self._tool_filter.get_available_categories(tools)
+                    if categories:
+                        log_info("Available categories:")
+                        for i, cat in enumerate(categories, 1):
+                            log_info(f"  {i}. {cat}")
+                        cat_choice = input("Select category number: ").strip()
+                        if cat_choice.isdigit() and 1 <= int(cat_choice) <= len(categories):
+                            filters['categories'] = [categories[int(cat_choice) - 1]]
+                elif choice == '5':
+                    tags = input("Enter tags (comma-separated): ").strip()
+                    if tags:
+                        filters['tags'] = [tag.strip() for tag in tags.split(',')]
+                elif choice == '6':
+                    days = input("Show tools updated within last X days: ").strip()
+                    try:
+                        filters['last_updated_days'] = int(days)
+                    except ValueError:
+                        log_error("Invalid number of days")
+                elif choice == '7':
+                    # Apply filters
+                    if filters:
+                        filtered_tools = self._tool_filter.apply_filters(tools, filters)
+                        log_success(f"Filtered {len(tools)} tools to {len(filtered_tools)} results")
+                        
+                        if filtered_tools:
+                            formatted_list = self._display_helper.format_tool_list(filtered_tools)
+                            print(formatted_list)
+                            self._handle_search_results(filtered_tools)
+                        else:
+                            log_warning("No tools match the filter criteria")
+                            input("\nPress Enter to continue...")
+                    else:
+                        log_warning("No filters specified")
+                        input("\nPress Enter to continue...")
+                elif choice == '8':
+                    filters.clear()
+                    log_success("All filters cleared")
+                    input("\nPress Enter to continue...")
+                elif choice == '0':
+                    return
+                else:
+                    log_error("Invalid option")
+                    input("\nPress Enter to continue...")
+                    
+        except Exception as e:
+            log_error(f"Filtering error: {e}")
+            input("\nPress Enter to continue...")
+
+    def _manage_favorites_interface(self) -> None:
+        """Comprehensive favorites management interface."""
+        if not self._is_library_available() or not self._favorites_manager:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Favorites Management")
+        
+        while True:
+            try:
+                log_info("Favorites Management:")
+                log_info("═" * 40)
+                
+                favorites = self._favorites_manager.get_favorites()
+                log_info(f"Current favorites: {len(favorites)}")
+                
+                print()
+                log_info("Options:")
+                log_info("1. View Favorites")
+                log_info("2. Add Tool to Favorites")
+                log_info("3. Remove from Favorites")
+                log_info("4. Get Recommendations")
+                log_info("5. Export Favorites")
+                log_info("6. Import Favorites")
+                log_info("7. User Preferences")
+                log_info("8. Activity Summary")
+                log_info("0. Back")
+                
+                choice = input("\nSelect option: ").strip()
+                
+                if choice == '1':
+                    self._view_favorites()
+                elif choice == '2':
+                    self._add_to_favorites()
+                elif choice == '3':
+                    self._remove_from_favorites()
+                elif choice == '4':
+                    self._show_recommendations()
+                elif choice == '5':
+                    self._export_favorites()
+                elif choice == '6':
+                    self._import_favorites()
+                elif choice == '7':
+                    self._manage_user_preferences()
+                elif choice == '8':
+                    self._show_activity_summary()
+                elif choice == '0':
+                    return
+                else:
+                    log_error("Invalid option")
+                    input("\nPress Enter to continue...")
+                    
+            except Exception as e:
+                log_error(f"Favorites management error: {e}")
+                input("\nPress Enter to continue...")
+
+    def _tool_comparison_interface(self) -> None:
+        """Side-by-side tool comparison interface."""
+        if not self._is_library_available() or not self._display_helper:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Tool Comparison")
+        
+        try:
+            tools_dict = self._library_manager.get_available_tools()
+            tools = [self._dict_to_tool_info(data, tool_id) for tool_id, data in tools_dict.items()]
+            
+            if len(tools) < 2:
+                log_warning("Need at least 2 tools for comparison")
+                input("\nPress Enter to continue...")
+                return
+            
+            log_info("Select tools to compare (enter tool numbers, comma-separated):")
+            log_info("Available tools:")
+            
+            for i, tool in enumerate(tools[:20], 1):  # Show first 20 tools
+                log_info(f"  {i}. {tool.name}")
+            
+            if len(tools) > 20:
+                log_info(f"  ... and {len(tools) - 20} more (use search for specific tools)")
+            
+            selection = input("\nEnter tool numbers (e.g., 1,3,5): ").strip()
+            
+            if not selection:
+                return
+            
+            try:
+                indices = [int(x.strip()) - 1 for x in selection.split(',')]
+                selected_tools = [tools[i] for i in indices if 0 <= i < len(tools)]
+                
+                if len(selected_tools) < 2:
+                    log_error("Please select at least 2 tools")
+                    input("\nPress Enter to continue...")
+                    return
+                
+                # Display comparison
+                comparison_table = self._display_helper.format_comparison_table(selected_tools)
+                print(comparison_table)
+                
+                input("\nPress Enter to continue...")
+                
+            except (ValueError, IndexError):
+                log_error("Invalid tool selection")
+                input("\nPress Enter to continue...")
+                
+        except Exception as e:
+            log_error(f"Comparison error: {e}")
+            input("\nPress Enter to continue...")
+
+    def _installation_history_interface(self) -> None:
+        """Installation history and analytics interface."""
+        if not self._is_library_available() or not self._installation_history:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Installation History & Analytics")
+        
+        while True:
+            try:
+                log_info("Installation History & Analytics:")
+                log_info("═" * 50)
+                
+                print()
+                log_info("Options:")
+                log_info("1. View Installation History")
+                log_info("2. Popular Tools")
+                log_info("3. Success Rate Statistics")
+                log_info("4. Usage Report")
+                log_info("5. Tool Timeline")
+                log_info("6. Export History")
+                log_info("7. Cleanup Old Records")
+                log_info("0. Back")
+                
+                choice = input("\nSelect option: ").strip()
+                
+                if choice == '1':
+                    self._view_installation_history()
+                elif choice == '2':
+                    self._show_popular_tools()
+                elif choice == '3':
+                    self._show_success_statistics()
+                elif choice == '4':
+                    self._show_usage_report()
+                elif choice == '5':
+                    self._show_tool_timeline()
+                elif choice == '6':
+                    self._export_installation_history()
+                elif choice == '7':
+                    self._cleanup_history()
+                elif choice == '0':
+                    return
+                else:
+                    log_error("Invalid option")
+                    input("\nPress Enter to continue...")
+                    
+            except Exception as e:
+                log_error(f"History interface error: {e}")
+                input("\nPress Enter to continue...")
+
+    def _library_statistics_interface(self) -> None:
+        """Library statistics and dashboard interface."""
+        if not self._is_library_available():
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Statistics Dashboard")
+        
+        try:
+            # Get statistics from various components
+            tools_dict = self._library_manager.get_available_tools()
+            tools = [self._dict_to_tool_info(data, tool_id) for tool_id, data in tools_dict.items()]
+            
+            # Library overview
+            log_info("Library Overview:")
+            log_info("═" * 40)
+            log_info(f"Total Tools: {len(tools)}")
+            
+            if self._tool_filter:
+                stats = self._tool_filter.get_filter_statistics(tools)
+                log_info(f"Categories: {len(stats.get('categories', {}))}")
+                log_info(f"Total Tags: {len(stats.get('tags', {}))}")
+                
+                # Show top categories
+                categories = stats.get('categories', {})
+                if categories:
+                    top_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
+                    log_info("\nTop Categories:")
+                    for category, count in top_categories:
+                        log_info(f"  {category}: {count} tools")
+            
+            # Favorites statistics
+            if self._favorites_manager:
+                favorites = self._favorites_manager.get_favorites()
+                log_info(f"\nUser favorites: {len(favorites)}")
+                
+                activity_summary = self._favorites_manager.get_activity_summary()
+                if activity_summary:
+                    log_info(f"Activity entries: {activity_summary.get('total_entries', 0)}")
+            
+            # Installation history statistics
+            if self._installation_history:
+                usage_report = self._installation_history.generate_usage_report()
+                if usage_report:
+                    summary = usage_report.get('summary', {})
+                    log_info(f"\nInstallation Statistics:")
+                    log_info(f"  Total installations: {summary.get('total_installations', 0)}")
+                    log_info(f"  Success rate: {summary.get('success_rate', 0):.1%}")
+                    log_info(f"  Unique tools used: {summary.get('unique_tools', 0)}")
+            
+            # Search engine statistics
+            if self._search_engine:
+                cache_stats = self._search_engine.get_cache_stats()
+                log_info(f"\nSearch Cache:")
+                log_info(f"  Cached searches: {cache_stats.get('search_cache_size', 0)}")
+                log_info(f"  Cached suggestions: {cache_stats.get('suggestion_cache_size', 0)}")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Statistics error: {e}")
+            input("\nPress Enter to continue...")
+
+    def _export_import_interface(self) -> None:
+        """Data export and import interface."""
+        if not self._is_library_available():
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Export & Import")
+        
+        while True:
+            try:
+                log_info("Export & Import Options:")
+                log_info("═" * 40)
+                
+                print()
+                log_info("Export Options:")
+                log_info("1. Export Favorites")
+                log_info("2. Export Configuration")
+                log_info("3. Export Installation History")
+                log_info("4. Export All User Data")
+                
+                print()
+                log_info("Import Options:")
+                log_info("5. Import Favorites")
+                log_info("6. Import Configuration")
+                log_info("7. Import User Data")
+                
+                print()
+                log_info("Backup Options:")
+                log_info("8. Create System Backup")
+                log_info("9. Restore from Backup")
+                
+                print()
+                log_info("0. Back")
+                
+                choice = input("\nSelect option: ").strip()
+                
+                if choice == '1':
+                    self._export_favorites()
+                elif choice == '2':
+                    self._export_configuration()
+                elif choice == '3':
+                    self._export_history()
+                elif choice == '4':
+                    self._export_all_data()
+                elif choice == '5':
+                    self._import_favorites()
+                elif choice == '6':
+                    self._import_configuration()
+                elif choice == '7':
+                    self._import_user_data()
+                elif choice == '8':
+                    self._create_system_backup()
+                elif choice == '9':
+                    self._restore_from_backup()
+                elif choice == '0':
+                    return
+                else:
+                    log_error("Invalid option")
+                    input("\nPress Enter to continue...")
+                    
+            except Exception as e:
+                log_error(f"Export/Import error: {e}")
+                input("\nPress Enter to continue...")
+
+    def _tool_recommendations_interface(self) -> None:
+        """Intelligent tool recommendations interface."""
+        if not self._is_library_available() or not self._favorites_manager:
+            return
+            
+        clear_screen()
+        display_header("Community Library", "Tool Recommendations")
+        
+        try:
+            log_progress("Generating personalized recommendations...")
+            recommendations = self._favorites_manager.get_recommendations(self._library_manager)
+            
+            if recommendations:
+                log_success(f"Found {len(recommendations)} recommendations for you:")
+                print()
+                
+                formatted_list = self._display_helper.format_tool_list(recommendations)
+                print(formatted_list)
+                
+                self._handle_search_results(recommendations)
+            else:
+                log_info("No recommendations available yet")
+                log_info("Try adding some tools to favorites to get personalized recommendations")
+                input("\nPress Enter to continue...")
+                
+        except Exception as e:
+            log_error(f"Recommendations error: {e}")
+            input("\nPress Enter to continue...")
+
+    # ===== HELPER METHODS FOR ADVANCED FEATURES =====
+
+    def _dict_to_tool_info(self, tool_data: Dict[str, Any], tool_id: str) -> ToolInfo:
+        """Convert tool dictionary to ToolInfo object."""
+        try:
+            if hasattr(ToolInfo, 'from_dict'):
+                return ToolInfo.from_dict(tool_data)
+            else:
+                # Manual creation as fallback
+                return ToolInfo(
+                    id=tool_id,
+                    name=tool_data.get('name', tool_id),
+                    description=tool_data.get('description', ''),
+                    category=tool_data.get('category', 'General'),
+                    version=tool_data.get('version', '1.0.0'),
+                    author=tool_data.get('author', 'Unknown')
+                )
+        except Exception as e:
+            log_error(f"Error creating ToolInfo for {tool_id}: {e}")
+            # Return minimal ToolInfo as fallback
+            return ToolInfo(
+                id=tool_id,
+                name=tool_data.get('name', tool_id),
+                description=tool_data.get('description', ''),
+                category='General',
+                version='1.0.0',
+                author='Unknown'
+            )
+
+    def _handle_search_results(self, results: List[ToolInfo]) -> None:
+        """Handle search results with selection options."""
+        if not results:
+            return
         
         print()
-        log_info("Current alternatives:")
-        log_info("• Check the tool's description for manual installation steps")
-        log_info("• Visit the community repository for direct downloads")
-        log_info("• Look for similar tools in the main installation options")
+        log_info("Actions:")
+        log_info("1. View tool details")
+        log_info("2. Install tool")
+        log_info("3. Add to favorites")
+        log_info("4. Compare tools")
+        log_info("0. Back")
         
-        print()
-        log_success("This feature will be available soon!")
+        choice = input("\nSelect action: ").strip()
         
+        if choice == '1':
+            tool_num = input("Enter tool number: ").strip()
+            if tool_num.isdigit():
+                idx = int(tool_num) - 1
+                if 0 <= idx < len(results):
+                    tool_details = self._display_helper.format_tool_info(results[idx], detailed=True)
+                    print(tool_details)
+                    input("\nPress Enter to continue...")
+        elif choice == '2':
+            tool_num = input("Enter tool number to install: ").strip()
+            if tool_num.isdigit():
+                idx = int(tool_num) - 1
+                if 0 <= idx < len(results):
+                    self._install_community_tool(results[idx])
+        elif choice == '3' and self._favorites_manager:
+            tool_num = input("Enter tool number to add to favorites: ").strip()
+            if tool_num.isdigit():
+                idx = int(tool_num) - 1
+                if 0 <= idx < len(results):
+                    if self._favorites_manager.add_favorite(results[idx].id):
+                        log_success("Added to favorites!")
+                    else:
+                        log_warning("Failed to add to favorites")
+                    input("\nPress Enter to continue...")
+        elif choice == '4':
+            log_info("Select tools to compare (enter numbers, comma-separated):")
+            selection = input("Tool numbers: ").strip()
+            try:
+                indices = [int(x.strip()) - 1 for x in selection.split(',')]
+                selected_tools = [results[i] for i in indices if 0 <= i < len(results)]
+                if len(selected_tools) >= 2:
+                    comparison = self._display_helper.format_comparison_table(selected_tools)
+                    print(comparison)
+                    input("\nPress Enter to continue...")
+                else:
+                    log_error("Select at least 2 tools for comparison")
+                    input("\nPress Enter to continue...")
+            except (ValueError, IndexError):
+                log_error("Invalid selection")
+                input("\nPress Enter to continue...")
+
+    def _view_favorites(self) -> None:
+        """View and manage favorite tools."""
+        try:
+            favorites = self._favorites_manager.get_favorite_tools(self._library_manager)
+            
+            if favorites:
+                clear_screen()
+                display_header("Favorites", f"{len(favorites)} Favorite Tools")
+                
+                formatted_list = self._display_helper.format_tool_list(favorites)
+                print(formatted_list)
+                
+                self._handle_search_results(favorites)
+            else:
+                log_info("No favorite tools yet")
+                log_info("Browse the library and add tools to favorites!")
+                input("\nPress Enter to continue...")
+                
+        except Exception as e:
+            log_error(f"Error viewing favorites: {e}")
+            input("\nPress Enter to continue...")
+
+    def _show_recommendations(self) -> None:
+        """Show tool recommendations."""
+        try:
+            count = input("Number of recommendations (default 5): ").strip()
+            try:
+                count = int(count) if count else 5
+            except ValueError:
+                count = 5
+            
+            recommendations = self._favorites_manager.get_recommendations(self._library_manager, count)
+            
+            if recommendations:
+                clear_screen()
+                display_header("Recommendations", f"Top {len(recommendations)} Recommendations")
+                
+                formatted_list = self._display_helper.format_tool_list(recommendations)
+                print(formatted_list)
+                
+                self._handle_search_results(recommendations)
+            else:
+                log_info("No recommendations available")
+                input("\nPress Enter to continue...")
+                
+        except Exception as e:
+            log_error(f"Error generating recommendations: {e}")
+            input("\nPress Enter to continue...")
+
+    # ===== ADDITIONAL HELPER METHODS =====
+
+    def _add_to_favorites(self) -> None:
+        """Add a tool to favorites by search or selection."""
+        try:
+            query = input("Search for tool to add to favorites: ").strip()
+            if not query:
+                return
+            
+            # Search for tools
+            results = self._search_engine.search_by_name(query, fuzzy=True)
+            if not results:
+                log_warning("No tools found")
+                input("\nPress Enter to continue...")
+                return
+            
+            # Show results and let user select
+            log_info("Found tools:")
+            for i, tool in enumerate(results[:10], 1):
+                log_info(f"  {i}. {tool.name}")
+            
+            choice = input("Select tool number to add to favorites: ").strip()
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(results):
+                    if self._favorites_manager.add_favorite(results[idx].id):
+                        log_success(f"Added '{results[idx].name}' to favorites!")
+                    else:
+                        log_warning("Failed to add to favorites (may already be favorited)")
+                else:
+                    log_error("Invalid selection")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error adding to favorites: {e}")
+            input("\nPress Enter to continue...")
+
+    def _remove_from_favorites(self) -> None:
+        """Remove a tool from favorites."""
+        try:
+            favorites = self._favorites_manager.get_favorites()
+            if not favorites:
+                log_info("No favorites to remove")
+                input("\nPress Enter to continue...")
+                return
+            
+            log_info("Current favorites:")
+            for i, tool_id in enumerate(favorites, 1):
+                log_info(f"  {i}. {tool_id}")
+            
+            choice = input("Select number to remove from favorites: ").strip()
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(favorites):
+                    tool_id = favorites[idx]
+                    if self._favorites_manager.remove_favorite(tool_id):
+                        log_success(f"Removed '{tool_id}' from favorites")
+                    else:
+                        log_warning("Failed to remove from favorites")
+                else:
+                    log_error("Invalid selection")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error removing from favorites: {e}")
+            input("\nPress Enter to continue...")
+
+    def _export_favorites(self) -> None:
+        """Export favorites to file."""
+        try:
+            filename = input("Export filename (or press Enter for default): ").strip()
+            if not filename:
+                filename = f"favorites_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            
+            if not filename.endswith('.json'):
+                filename += '.json'
+            
+            export_path = os.path.join(self._sr._base_path, "exports", filename)
+            os.makedirs(os.path.dirname(export_path), exist_ok=True)
+            
+            if self._favorites_manager.export_favorites(export_path):
+                log_success(f"Favorites exported to: {export_path}")
+            else:
+                log_error("Failed to export favorites")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error exporting favorites: {e}")
+            input("\nPress Enter to continue...")
+
+    def _import_favorites(self) -> None:
+        """Import favorites from file."""
+        try:
+            filename = input("Import filename (full path): ").strip()
+            if not filename:
+                log_info("Import cancelled")
+                input("\nPress Enter to continue...")
+                return
+            
+            if self._favorites_manager.import_favorites(filename):
+                log_success("Favorites imported successfully!")
+            else:
+                log_error("Failed to import favorites")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error importing favorites: {e}")
+            input("\nPress Enter to continue...")
+
+    def _manage_user_preferences(self) -> None:
+        """Manage user preferences interface."""
+        try:
+            log_info("User preferences management not yet fully implemented")
+            log_info("This will allow configuration of:")
+            log_info("• Search preferences")
+            log_info("• Display settings")
+            log_info("• Recommendation settings")
+            log_info("• Notification preferences")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error managing preferences: {e}")
+            input("\nPress Enter to continue...")
+
+    def _show_activity_summary(self) -> None:
+        """Show user activity summary."""
+        try:
+            summary = self._favorites_manager.get_activity_summary()
+            if summary:
+                log_info("Activity Summary:")
+                log_info("═" * 30)
+                log_info(f"Total entries: {summary.get('total_entries', 0)}")
+                
+                actions = summary.get('actions', {})
+                if actions:
+                    log_info("\nActions performed:")
+                    for action, count in actions.items():
+                        log_info(f"  {action}: {count}")
+                
+                trends = summary.get('favorite_trends', {})
+                if trends:
+                    log_info(f"\nFavorites added last week: {trends.get('added_last_week', 0)}")
+                    log_info(f"Favorites removed last week: {trends.get('removed_last_week', 0)}")
+            else:
+                log_info("No activity data available")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error showing activity summary: {e}")
+            input("\nPress Enter to continue...")
+
+    # Placeholder methods for features not yet fully implemented
+    def _category_search_interface(self) -> None:
+        """Category search interface."""
+        log_info("Category search interface - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _tag_search_interface(self) -> None:
+        """Tag search interface."""
+        log_info("Tag search interface - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _combined_search_interface(self) -> None:
+        """Combined search interface."""
+        log_info("Combined search interface - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _show_search_history(self) -> None:
+        """Show search history."""
+        log_info("Search history - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _view_installation_history(self) -> None:
+        """View installation history."""
+        try:
+            if self._installation_history:
+                history = self._installation_history.get_installation_history(20)
+                if history:
+                    log_info("Recent Installation History:")
+                    log_info("═" * 40)
+                    for entry in history:
+                        timestamp = entry.get('timestamp', 'Unknown')
+                        action = entry.get('action', 'unknown')
+                        tool_id = entry.get('tool_id', 'unknown')
+                        success = entry.get('success', False)
+                        status = "✓" if success else "✗"
+                        log_info(f"{timestamp[:19]} | {status} {action} | {tool_id}")
+                else:
+                    log_info("No installation history available")
+            else:
+                log_info("Installation history not available")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error viewing history: {e}")
+            input("\nPress Enter to continue...")
+
+    def _show_popular_tools(self) -> None:
+        """Show popular tools."""
+        try:
+            if self._installation_history:
+                popular = self._installation_history.get_popular_tools(10)
+                if popular:
+                    log_info("Most Popular Tools (Last 30 Days):")
+                    log_info("═" * 40)
+                    for i, tool_id in enumerate(popular, 1):
+                        log_info(f"{i}. {tool_id}")
+                else:
+                    log_info("No popularity data available")
+            else:
+                log_info("Installation history not available")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error showing popular tools: {e}")
+            input("\nPress Enter to continue...")
+
+    def _show_success_statistics(self) -> None:
+        """Show installation success statistics."""
+        try:
+            if self._installation_history:
+                overall_rate = self._installation_history.get_success_rate()
+                log_info("Installation Success Statistics:")
+                log_info("═" * 40)
+                log_info(f"Overall success rate: {overall_rate:.1%}")
+            else:
+                log_info("Installation history not available")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error showing statistics: {e}")
+            input("\nPress Enter to continue...")
+
+    def _show_usage_report(self) -> None:
+        """Show detailed usage report."""
+        try:
+            if self._installation_history:
+                log_progress("Generating usage report...")
+                report = self._installation_history.generate_usage_report()
+                if report:
+                    log_info("Usage Report:")
+                    log_info("═" * 30)
+                    
+                    summary = report.get('summary', {})
+                    log_info(f"Total installations: {summary.get('total_installations', 0)}")
+                    log_info(f"Successful: {summary.get('successful_installations', 0)}")
+                    log_info(f"Failed: {summary.get('failed_installations', 0)}")
+                    log_info(f"Success rate: {summary.get('success_rate', 0):.1%}")
+                    log_info(f"Unique tools: {summary.get('unique_tools', 0)}")
+                else:
+                    log_info("No usage data available")
+            else:
+                log_info("Installation history not available")
+            
+            input("\nPress Enter to continue...")
+            
+        except Exception as e:
+            log_error(f"Error showing usage report: {e}")
+            input("\nPress Enter to continue...")
+
+    # Additional placeholder methods for export/import features
+    def _show_tool_timeline(self) -> None:
+        log_info("Tool timeline feature - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _export_installation_history(self) -> None:
+        log_info("Export installation history - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _cleanup_history(self) -> None:
+        log_info("History cleanup feature - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _export_configuration(self) -> None:
+        log_info("Export configuration - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _export_history(self) -> None:
+        log_info("Export history - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _export_all_data(self) -> None:
+        log_info("Export all data - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _import_configuration(self) -> None:
+        log_info("Import configuration - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _import_user_data(self) -> None:
+        log_info("Import user data - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _create_system_backup(self) -> None:
+        log_info("Create system backup - coming soon!")
+        input("\nPress Enter to continue...")
+
+    def _restore_from_backup(self) -> None:
+        log_info("Restore from backup - coming soon!")
         input("\nPress Enter to continue...")
 
     def print_menu(self):

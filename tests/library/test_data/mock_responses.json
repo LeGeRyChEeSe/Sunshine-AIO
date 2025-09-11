@@ -1,0 +1,86 @@
+{
+  "github_api_success": [
+    {
+      "name": "example_tool",
+      "type": "dir",
+      "path": "tools/example_tool",
+      "download_url": null,
+      "size": 0,
+      "updated_at": "2024-01-15T10:30:00Z",
+      "sha": "abc123",
+      "url": "https://api.github.com/repos/test/repo/contents/tools/example_tool"
+    },
+    {
+      "name": "data_processor",
+      "type": "dir",
+      "path": "tools/data_processor", 
+      "download_url": null,
+      "size": 0,
+      "updated_at": "2024-01-10T14:20:00Z",
+      "sha": "def456",
+      "url": "https://api.github.com/repos/test/repo/contents/tools/data_processor"
+    },
+    {
+      "name": "metadata.json",
+      "type": "file",
+      "path": "metadata.json",
+      "download_url": "https://raw.githubusercontent.com/test/repo/main/metadata.json",
+      "size": 2048,
+      "updated_at": "2024-01-15T10:30:00Z",
+      "sha": "ghi789",
+      "url": "https://api.github.com/repos/test/repo/contents/metadata.json"
+    },
+    {
+      "name": "README.md",
+      "type": "file",
+      "path": "README.md", 
+      "download_url": "https://raw.githubusercontent.com/test/repo/main/README.md",
+      "size": 1024,
+      "updated_at": "2024-01-01T12:00:00Z",
+      "sha": "jkl012",
+      "url": "https://api.github.com/repos/test/repo/contents/README.md"
+    }
+  ],
+  "github_api_empty": [],
+  "github_api_error": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/reference/repos#get-repository-content",
+    "status": "404"
+  },
+  "github_api_rate_limit": {
+    "message": "API rate limit exceeded for user ID 12345.",
+    "documentation_url": "https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting",
+    "status": "403"
+  },
+  "metadata_file_content": {
+    "tools": {
+      "remote_tool": {
+        "id": "remote_tool",
+        "name": "Remote Tool",
+        "description": "Tool loaded from remote metadata",
+        "version": "1.5.0",
+        "category": "Remote",
+        "download_url": "https://example.com/remote_tool.zip",
+        "checksum": "sha256:remote123456789abcdef",
+        "platform_support": ["all"],
+        "validated": true,
+        "trusted": true
+      }
+    }
+  },
+  "successful_download": {
+    "status": "success",
+    "content": "UEsDBAoAAAAAAA==",
+    "size": 1024,
+    "checksum": "sha256:valid_checksum_here"
+  },
+  "failed_download": {
+    "status": "error",
+    "message": "File not found",
+    "code": 404
+  },
+  "network_timeout": {
+    "error": "timeout",
+    "message": "Connection timed out after 30 seconds"
+  }
+}

@@ -186,6 +186,402 @@ class MenuDisplay:
         os.system('cls' if os.name == 'nt' else 'clear')
         print()  # Single line spacing
 
+    # ===== PHASE 4: ADVANCED DISPLAY FUNCTIONS =====
+
+    def display_search_interface(self, query: str, suggestions: List[str]) -> str:
+        """Display interactive search interface with suggestions."""
+        try:
+            content = []
+            content.append(f"Search Query: {query}")
+            
+            if suggestions:
+                content.append("")
+                content.append("Suggestions:")
+                for i, suggestion in enumerate(suggestions[:5], 1):
+                    content.append(f"  {i}. {suggestion}")
+                content.append("")
+                content.append("Press 1-5 to use suggestion, or Enter to search")
+            else:
+                content.append("")
+                content.append("Press Enter to search...")
+            
+            box = self._create_box(content, "Advanced Search")
+            return self._center_text(box, self.terminal_width)
+            
+        except Exception as e:
+            return f"Error displaying search interface: {e}"
+
+    def display_tool_comparison(self, tools: List[Dict]) -> None:
+        """Display side-by-side tool comparison table."""
+        try:
+            if not tools or len(tools) < 2:
+                self.display_status_message("Need at least 2 tools for comparison", "warning")
+                return
+            
+            # Limit to 3 tools for readability
+            tools = tools[:3]
+            
+            print(self._center_text("═" * self.menu_width, self.terminal_width))
+            print(self._center_text("TOOL COMPARISON", self.terminal_width))
+            print(self._center_text("═" * self.menu_width, self.terminal_width))
+            print()
+            
+            # Create comparison table
+            attributes = ['Name', 'Category', 'Version', 'Author', 'Trust Score', 'Size']
+            
+            # Calculate column widths
+            col_width = (self.menu_width - len(tools) - 1) // (len(tools) + 1)
+            
+            # Header row
+            header_row = "│" + "Attribute".ljust(col_width) + "│"
+            for tool in tools:
+                tool_name = tool.get('name', 'Unknown')[:col_width-1]
+                header_row += tool_name.ljust(col_width) + "│"
+            
+            print(self._center_text(header_row, self.terminal_width))
+            print(self._center_text("├" + "─" * col_width + "┼" + ("─" * col_width + "┼") * len(tools), self.terminal_width))
+            
+            # Data rows
+            for attr in attributes:
+                attr_key = attr.lower().replace(' ', '_')
+                row = "│" + attr.ljust(col_width) + "│"
+                
+                for tool in tools:
+                    value = str(tool.get(attr_key, 'N/A'))[:col_width-1]
+                    row += value.ljust(col_width) + "│"
+                
+                print(self._center_text(row, self.terminal_width))
+            
+            print(self._center_text("└" + "─" * col_width + "┴" + ("─" * col_width + "┴") * len(tools), self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying comparison: {e}", "error")
+
+    def display_installation_progress(self, tool_name: str, progress: float) -> None:
+        """Display installation progress with visual progress bar."""
+        try:
+            # Clear current line and display progress
+            progress_width = 40
+            filled_width = int(progress * progress_width)
+            
+            bar = "█" * filled_width + "▒" * (progress_width - filled_width)
+            progress_text = f"Installing {tool_name}: [{bar}] {progress:.1%}"
+            
+            print(f"\r{self._center_text(progress_text, self.terminal_width)}", end="", flush=True)
+            
+            if progress >= 1.0:
+                print()  # New line when complete
+                
+        except Exception as e:
+            print(f"\rProgress display error: {e}")
+
+    def display_statistics_dashboard(self, stats: Dict) -> None:
+        """Display comprehensive statistics dashboard."""
+        try:
+            content = []
+            content.append("LIBRARY STATISTICS DASHBOARD")
+            content.append("═" * 40)
+            content.append("")
+            
+            # Basic statistics
+            content.append("📊 Overview:")
+            content.append(f"  Total Tools: {stats.get('total_tools', 0)}")
+            content.append(f"  Categories: {stats.get('total_categories', 0)}")
+            content.append(f"  Tags: {stats.get('total_tags', 0)}")
+            content.append("")
+            
+            # User statistics
+            if 'user_stats' in stats:
+                user_stats = stats['user_stats']
+                content.append("👤 User Activity:")
+                content.append(f"  Favorites: {user_stats.get('favorites_count', 0)}")
+                content.append(f"  Installations: {user_stats.get('installations', 0)}")
+                content.append(f"  Success Rate: {user_stats.get('success_rate', 0):.1%}")
+                content.append("")
+            
+            # Popular categories
+            if 'top_categories' in stats:
+                content.append("📂 Top Categories:")
+                for category, count in stats['top_categories'][:5]:
+                    content.append(f"  {category}: {count} tools")
+                content.append("")
+            
+            # Recent activity
+            if 'recent_activity' in stats:
+                content.append("🕒 Recent Activity:")
+                for activity in stats['recent_activity'][:3]:
+                    content.append(f"  {activity.get('action', 'Unknown')}: {activity.get('tool', 'N/A')}")
+            
+            box = self._create_box(content, "Statistics Dashboard")
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying statistics: {e}", "error")
+
+    def display_filter_interface(self, active_filters: Dict) -> None:
+        """Display current filter status and options."""
+        try:
+            content = []
+            content.append("ACTIVE FILTERS")
+            content.append("─" * 20)
+            
+            if active_filters:
+                for filter_name, filter_value in active_filters.items():
+                    filter_display = filter_name.replace('_', ' ').title()
+                    if isinstance(filter_value, list):
+                        value_display = ', '.join(str(v) for v in filter_value)
+                    else:
+                        value_display = str(filter_value)
+                    content.append(f"🔍 {filter_display}: {value_display}")
+            else:
+                content.append("No filters applied")
+            
+            content.append("")
+            content.append("Available Filter Options:")
+            content.append("1. Size Filter")
+            content.append("2. Platform Filter") 
+            content.append("3. Trust Score Filter")
+            content.append("4. Category Filter")
+            content.append("5. Tag Filter")
+            content.append("6. Last Updated Filter")
+            
+            box = self._create_box(content, "Filter Configuration")
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying filters: {e}", "error")
+
+    def display_favorites_list(self, favorites: List[Dict], title: str = "Favorite Tools") -> None:
+        """Display list of favorite tools with enhanced formatting."""
+        try:
+            content = []
+            
+            if not favorites:
+                content.append("No favorite tools yet")
+                content.append("")
+                content.append("💡 Tip: Browse the library and add tools to favorites!")
+            else:
+                content.append(f"You have {len(favorites)} favorite tools:")
+                content.append("")
+                
+                for i, tool in enumerate(favorites, 1):
+                    tool_name = tool.get('name', 'Unknown')
+                    tool_category = tool.get('category', 'General')
+                    star_rating = "⭐" * min(int(tool.get('trust_score', 5) / 2), 5)
+                    
+                    content.append(f"{i:2d}. {tool_name}")
+                    content.append(f"    📁 {tool_category} {star_rating}")
+                    if i < len(favorites):
+                        content.append("")
+            
+            box = self._create_box(content, title)
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying favorites: {e}", "error")
+
+    def display_installation_history(self, history: List[Dict], title: str = "Installation History") -> None:
+        """Display installation history with status indicators."""
+        try:
+            content = []
+            
+            if not history:
+                content.append("No installation history available")
+            else:
+                content.append(f"Recent installations ({len(history)} entries):")
+                content.append("")
+                
+                for entry in history[:10]:  # Show last 10 entries
+                    timestamp = entry.get('timestamp', 'Unknown')[:16]  # YYYY-MM-DD HH:MM
+                    tool_name = entry.get('tool_id', 'Unknown')
+                    success = entry.get('success', False)
+                    action = entry.get('action', 'install')
+                    
+                    status_icon = "✅" if success else "❌"
+                    action_icon = "📥" if action == 'installation' else "🗑️"
+                    
+                    content.append(f"{timestamp} {action_icon} {status_icon} {tool_name}")
+            
+            box = self._create_box(content, title)
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying history: {e}", "error")
+
+    def display_tool_details_enhanced(self, tool: Dict) -> None:
+        """Display detailed tool information with rich formatting."""
+        try:
+            content = []
+            
+            # Header with tool name and key info
+            tool_name = tool.get('name', 'Unknown Tool')
+            tool_version = tool.get('version', '1.0.0')
+            content.append(f"🔧 {tool_name} v{tool_version}")
+            content.append("═" * len(f"{tool_name} v{tool_version}"))
+            content.append("")
+            
+            # Basic information
+            content.append("📋 Information:")
+            content.append(f"  Category: {tool.get('category', 'General')}")
+            content.append(f"  Author: {tool.get('author', 'Unknown')}")
+            content.append(f"  Size: {self._format_file_size(tool.get('size', 0))}")
+            
+            # Trust score with visual indicator
+            trust_score = tool.get('trust_score', 5.0)
+            stars = "⭐" * int(trust_score / 2)
+            content.append(f"  Trust Score: {trust_score}/10 {stars}")
+            
+            # Platforms
+            platforms = tool.get('platforms', ['Windows'])
+            if isinstance(platforms, str):
+                platforms = [platforms]
+            platform_icons = {'windows': '🪟', 'linux': '🐧', 'mac': '🍎'}
+            platform_display = ' '.join([platform_icons.get(p.lower(), '💻') for p in platforms])
+            content.append(f"  Platforms: {platform_display} {', '.join(platforms)}")
+            
+            content.append("")
+            
+            # Description
+            description = tool.get('description', 'No description available')
+            content.append("📝 Description:")
+            # Word wrap description
+            words = description.split()
+            line = ""
+            for word in words:
+                if len(line + word) > self.menu_width - 8:
+                    content.append(f"  {line.strip()}")
+                    line = word + " "
+                else:
+                    line += word + " "
+            if line.strip():
+                content.append(f"  {line.strip()}")
+            
+            content.append("")
+            
+            # Tags
+            tags = tool.get('tags', [])
+            if tags:
+                if isinstance(tags, str):
+                    tags = [tags]
+                content.append(f"🏷️  Tags: {', '.join(tags)}")
+                content.append("")
+            
+            # Installation status
+            content.append("⚙️  Actions Available:")
+            content.append("  [I] Install Tool")
+            content.append("  [F] Add to Favorites")
+            content.append("  [D] Download Only")
+            content.append("  [C] Compare with Others")
+            
+            box = self._create_box(content, "Tool Details")
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying tool details: {e}", "error")
+
+    def display_recommendations(self, recommendations: List[Dict], title: str = "Recommended for You") -> None:
+        """Display personalized tool recommendations."""
+        try:
+            content = []
+            
+            if not recommendations:
+                content.append("🤖 No recommendations available yet")
+                content.append("")
+                content.append("💡 Tips to get recommendations:")
+                content.append("  • Add tools to favorites")
+                content.append("  • Install some tools")
+                content.append("  • Browse different categories")
+            else:
+                content.append(f"🎯 {len(recommendations)} tools recommended for you:")
+                content.append("")
+                
+                for i, tool in enumerate(recommendations[:5], 1):
+                    tool_name = tool.get('name', 'Unknown')
+                    category = tool.get('category', 'General')
+                    trust_score = tool.get('trust_score', 5.0)
+                    
+                    # Simple recommendation score visualization
+                    score_stars = "⭐" * min(int(trust_score / 2), 5)
+                    
+                    content.append(f"{i}. 🔧 {tool_name}")
+                    content.append(f"   📁 {category} {score_stars}")
+                    
+                    if i < len(recommendations):
+                        content.append("")
+            
+            box = self._create_box(content, title)
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying recommendations: {e}", "error")
+
+    def display_export_import_status(self, operation: str, file_path: str, success: bool, details: str = "") -> None:
+        """Display export/import operation status."""
+        try:
+            operation_icons = {
+                'export': '📤',
+                'import': '📥',
+                'backup': '💾',
+                'restore': '♻️'
+            }
+            
+            icon = operation_icons.get(operation.lower(), '📋')
+            status_icon = "✅" if success else "❌"
+            status_text = "SUCCESS" if success else "FAILED"
+            
+            content = []
+            content.append(f"{icon} {operation.upper()} {status_text} {status_icon}")
+            content.append("─" * 30)
+            content.append(f"File: {os.path.basename(file_path)}")
+            content.append(f"Path: {file_path}")
+            
+            if details:
+                content.append("")
+                content.append(f"Details: {details}")
+            
+            if success:
+                content.append("")
+                content.append("✨ Operation completed successfully!")
+            else:
+                content.append("")
+                content.append("⚠️  Please check the error message above")
+            
+            box = self._create_box(content, f"{operation.title()} Status")
+            print(self._center_text(box, self.terminal_width))
+            print()
+            
+        except Exception as e:
+            self.display_status_message(f"Error displaying {operation} status: {e}", "error")
+
+    def _format_file_size(self, size: int) -> str:
+        """Format file size in human-readable format."""
+        try:
+            if size == 0:
+                return "Unknown"
+            
+            units = ['B', 'KB', 'MB', 'GB', 'TB']
+            size_float = float(size)
+            
+            for unit in units:
+                if size_float < 1024.0:
+                    if unit == 'B':
+                        return f"{int(size_float)} {unit}"
+                    else:
+                        return f"{size_float:.1f} {unit}"
+                size_float /= 1024.0
+            
+            return f"{size_float:.1f} PB"
+            
+        except Exception:
+            return "Unknown"
+
 
 # Global display instance
 menu_display = MenuDisplay()
@@ -230,3 +626,55 @@ def display_steps(steps: List[str], title: str = "Steps"):
 def clear_screen():
     """Clear screen"""
     menu_display.clear_screen()
+
+
+# ===== PHASE 4: ADVANCED DISPLAY CONVENIENCE FUNCTIONS =====
+
+def display_search_interface(query: str, suggestions: List[str]) -> str:
+    """Display interactive search interface with suggestions"""
+    return menu_display.display_search_interface(query, suggestions)
+
+
+def display_tool_comparison(tools: List[Dict]) -> None:
+    """Display side-by-side tool comparison table"""
+    menu_display.display_tool_comparison(tools)
+
+
+def display_installation_progress(tool_name: str, progress: float) -> None:
+    """Display installation progress with visual progress bar"""
+    menu_display.display_installation_progress(tool_name, progress)
+
+
+def display_statistics_dashboard(stats: Dict) -> None:
+    """Display comprehensive statistics dashboard"""
+    menu_display.display_statistics_dashboard(stats)
+
+
+def display_filter_interface(active_filters: Dict) -> None:
+    """Display current filter status and options"""
+    menu_display.display_filter_interface(active_filters)
+
+
+def display_favorites_list(favorites: List[Dict], title: str = "Favorite Tools") -> None:
+    """Display list of favorite tools with enhanced formatting"""
+    menu_display.display_favorites_list(favorites, title)
+
+
+def display_installation_history(history: List[Dict], title: str = "Installation History") -> None:
+    """Display installation history with status indicators"""
+    menu_display.display_installation_history(history, title)
+
+
+def display_tool_details_enhanced(tool: Dict) -> None:
+    """Display detailed tool information with rich formatting"""
+    menu_display.display_tool_details_enhanced(tool)
+
+
+def display_recommendations(recommendations: List[Dict], title: str = "Recommended for You") -> None:
+    """Display personalized tool recommendations"""
+    menu_display.display_recommendations(recommendations, title)
+
+
+def display_export_import_status(operation: str, file_path: str, success: bool, details: str = "") -> None:
+    """Display export/import operation status"""
+    menu_display.display_export_import_status(operation, file_path, success, details)

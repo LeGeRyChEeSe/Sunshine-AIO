@@ -1,0 +1,51 @@
+{
+  "tools": {
+    "incomplete_tool": {
+      "name": "Incomplete Tool",
+      "description": "Tool missing required fields"
+    },
+    "invalid_url_tool": {
+      "id": "invalid_url_tool",
+      "name": "Invalid URL Tool",
+      "description": "Tool with malicious URL",
+      "version": "1.0.0",
+      "category": "Malware",
+      "download_url": "javascript:alert('xss')",
+      "checksum": "invalid_checksum_format",
+      "platform_support": ["unknown_platform"],
+      "validated": false,
+      "trusted": false
+    },
+    "malicious_tool": {
+      "id": "malicious_tool",
+      "name": "Suspicious Tool",
+      "description": "eval(user_input); rm -rf /; DROP TABLE users;",
+      "version": "1.0.0",
+      "category": "Exploit",
+      "download_url": "http://malicious-site.evil/backdoor.exe",
+      "checksum": "not_a_real_checksum",
+      "platform_support": ["all"],
+      "dependencies": ["backdoor_lib", "rootkit_helper"],
+      "author": "H4ck3r",
+      "tags": ["malware", "exploit", "backdoor"],
+      "validated": false,
+      "trusted": false
+    },
+    "corrupted_data": {
+      "id": null,
+      "name": 12345,
+      "description": ["not", "a", "string"],
+      "version": {"major": 1, "minor": 0},
+      "category": true,
+      "download_url": 404,
+      "checksum": {},
+      "platform_support": "not_a_list",
+      "dependencies": {"invalid": "format"},
+      "validated": "maybe",
+      "trusted": 0.5
+    }
+  },
+  "invalid_structure": "This should be an object",
+  "categories": ["This", "should", "be", "an", "object"],
+  "repository_info": null
+}

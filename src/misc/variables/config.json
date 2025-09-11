@@ -42,5 +42,17 @@
 		"downloaded_dir_path": "tools",
 		"guide_url": "https://github.com/Nonary/PlayNiteWatcher#setup-instructions",
 		"addon_url": "playnite://playnite/installaddon/SunshineAppExport"
+	},
+	"CommunityLibrary": {
+		"repository_url": "https://github.com/LeGeRyChEeSe/sunshine-aio-library",
+		"api_url": "https://api.github.com/repos/LeGeRyChEeSe/sunshine-aio-library",
+		"cache_directory": "cache\\library",
+		"sync_interval": 3600,
+		"validation_enabled": true,
+		"validation_level": "standard",
+		"max_cache_size": 52428800,
+		"max_cache_entries": 1000,
+		"default_ttl": 86400,
+		"timeout": 30
 	}
 }

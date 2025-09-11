@@ -1097,3 +1097,281 @@ class DownloadManager:
 
         if selective:
             self.sr.pause()
+
+    def download_community_tool(self, tool_id: str, install: bool = True) -> bool:
+        """
+        Download and optionally install a community tool from the library.
+        
+        Args:
+            tool_id: ID of the tool to download
+            install: Whether to install after download
+            
+        Returns:
+            True if download (and installation if requested) was successful
+        """
+        try:
+            log_info(f"Starting community tool download: {tool_id}")
+            
+            # Get tool information from library
+            tool_info = self._get_library_tool_info(tool_id)
+            if not tool_info:
+                log_error(f"Community tool not found: {tool_id}")
+                return False
+            
+            # Download tool files
+            downloaded_file = self._download_from_library(tool_info)
+            if not downloaded_file:
+                log_error(f"Failed to download community tool: {tool_id}")
+                return False
+            
+            # Install if requested
+            if install:
+                return self._install_library_tool(tool_info, downloaded_file)
+            else:
+                log_success(f"Community tool downloaded successfully: {downloaded_file}")
+                return True
+                
+        except Exception as e:
+            log_error(f"Error downloading community tool {tool_id}: {e}")
+            return False
+
+    def _get_library_tool_info(self, tool_id: str):
+        """
+        Get tool information from the community library.
+        
+        Args:
+            tool_id: ID of the tool
+            
+        Returns:
+            ToolInfo object or None if not found
+        """
+        try:
+            # Import library components
+            from library.library_manager import get_library_manager
+            from library.tool_provider import ToolInfo
+            
+            # Get library manager
+            library_manager = get_library_manager(self.sr._base_path)
+            if not library_manager.initialize():
+                log_error("Failed to initialize library manager")
+                return None
+            
+            # Get tool info
+            tool_data = library_manager.get_tool_info(tool_id)
+            if not tool_data:
+                return None
+            
+            # Convert to ToolInfo object
+            return ToolInfo.from_dict(tool_data)
+            
+        except ImportError as e:
+            log_error(f"Library components not available: {e}")
+            return None
+        except Exception as e:
+            log_error(f"Error getting library tool info: {e}")
+            return None
+
+    def _download_from_library(self, tool_info) -> str:
+        """
+        Download a tool from the community library.
+        
+        Args:
+            tool_info: ToolInfo object containing download information
+            
+        Returns:
+            Path to downloaded file or None on failure
+        """
+        try:
+            # Import downloader
+            from library.downloader import LibraryDownloader
+            
+            # Initialize downloader
+            cache_dir = os.path.join(self.sr._base_path, "cache", "downloads")
+            downloader = LibraryDownloader(cache_dir)
+            
+            # Add progress callback
+            progress_callback = downloader.get_download_progress_callback()
+            downloader.add_progress_callback(progress_callback)
+            
+            # Download tool files
+            downloaded_file = downloader.download_tool_files(tool_info)
+            
+            if downloaded_file:
+                log_success(f"Downloaded community tool: {downloaded_file}")
+                return downloaded_file
+            else:
+                log_error(f"Failed to download tool files for: {tool_info.tool_id}")
+                return None
+                
+        except ImportError as e:
+            log_error(f"Library downloader not available: {e}")
+            return None
+        except Exception as e:
+            log_error(f"Error downloading from library: {e}")
+            return None
+
+    def _install_library_tool(self, tool_info, file_path: str) -> bool:
+        """
+        Install a downloaded library tool.
+        
+        Args:
+            tool_info: ToolInfo object
+            file_path: Path to the downloaded file
+            
+        Returns:
+            True if installation was successful
+        """
+        try:
+            # Import installer
+            from library.installer import HybridInstaller
+            
+            # Initialize installer
+            installer = HybridInstaller(self.sr, self)
+            
+            # Perform installation
+            result = installer.install_library_tool(tool_info)
+            
+            if result:
+                # Track installation
+                try:
+                    install_info = {
+                        "version": tool_info.version,
+                        "installer_type": "community_library",
+                        "files_created": [result.installation_path] if result.installation_path else [],
+                        "custom_options": {
+                            "tool_id": tool_info.tool_id,
+                            "download_url": tool_info.download_url,
+                            "installation_method": "Hybrid installer",
+                            "source": "community_library"
+                        }
+                    }
+                    
+                    installation_path = result.installation_path or os.path.join(self.sr._base_path, "tools", tool_info.tool_id)
+                    self._tracker.track_installation(tool_info.tool_id, installation_path, install_info)
+                    log_info(f"Community tool installation tracked: {tool_info.tool_id}")
+                    
+                except Exception as e:
+                    log_warning(f"Could not track community tool installation: {e}")
+                
+                log_success(f"Community tool installed successfully: {tool_info.tool_id}")
+                return True
+            else:
+                log_error(f"Community tool installation failed: {tool_info.tool_id}")
+                return False
+                
+        except ImportError as e:
+            log_error(f"Library installer not available: {e}")
+            return False
+        except Exception as e:
+            log_error(f"Error installing library tool: {e}")
+            return False
+
+    def get_available_community_tools(self) -> list:
+        """
+        Get list of all available community tools.
+        
+        Returns:
+            List of tool information dictionaries
+        """
+        try:
+            from library.library_manager import get_library_manager
+            
+            library_manager = get_library_manager(self.sr._base_path)
+            if not library_manager.initialize():
+                log_error("Failed to initialize library manager")
+                return []
+            
+            tools = library_manager.get_available_tools()
+            return list(tools.values())
+            
+        except ImportError as e:
+            log_error(f"Library components not available: {e}")
+            return []
+        except Exception as e:
+            log_error(f"Error getting available community tools: {e}")
+            return []
+
+    def search_community_tools(self, query: str, category: str = None) -> list:
+        """
+        Search for community tools matching a query.
+        
+        Args:
+            query: Search query string
+            category: Optional category filter
+            
+        Returns:
+            List of matching tool information dictionaries
+        """
+        try:
+            from library.library_manager import get_library_manager
+            
+            library_manager = get_library_manager(self.sr._base_path)
+            if not library_manager.initialize():
+                log_error("Failed to initialize library manager")
+                return []
+            
+            results = library_manager.search_tools(query, category)
+            return list(results.values())
+            
+        except ImportError as e:
+            log_error(f"Library components not available: {e}")
+            return []
+        except Exception as e:
+            log_error(f"Error searching community tools: {e}")
+            return []
+
+    def sync_community_library(self) -> bool:
+        """
+        Synchronize the community library metadata.
+        
+        Returns:
+            True if synchronization was successful
+        """
+        try:
+            from library.library_manager import get_library_manager
+            
+            library_manager = get_library_manager(self.sr._base_path)
+            if not library_manager.initialize():
+                log_error("Failed to initialize library manager")
+                return False
+            
+            success = library_manager.force_sync()
+            if success:
+                log_success("Community library synchronized successfully")
+            else:
+                log_error("Failed to synchronize community library")
+            
+            return success
+            
+        except ImportError as e:
+            log_error(f"Library components not available: {e}")
+            return False
+        except Exception as e:
+            log_error(f"Error synchronizing community library: {e}")
+            return False
+
+    def get_installation_status(self, tool_id: str) -> Dict[str, Any]:
+        """
+        Get the installation status for a community tool.
+        
+        Args:
+            tool_id: ID of the tool
+            
+        Returns:
+            Dict containing installation status information
+        """
+        try:
+            from library.installer import HybridInstaller
+            
+            # Initialize installer to check status
+            installer = HybridInstaller(self.sr, self)
+            status_info = installer.get_installation_status(tool_id)
+            
+            return status_info
+            
+        except ImportError as e:
+            log_error(f"Library installer not available: {e}")
+            return {"tool_id": tool_id, "status": "unknown", "error": str(e)}
+        except Exception as e:
+            log_error(f"Error getting installation status: {e}")
+            return {"tool_id": tool_id, "status": "error", "error": str(e)}
