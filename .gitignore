@@ -12,3 +12,20 @@ GUI_README.md
 ISSUES_TO_CLOSE.md
 WIKI_SETUP_INSTRUCTIONS.md
 wiki_content/
+src/backups/
+src/library/
+
+# Cache directories
+cache/
+src/cache/
+
+# User data
+src/user_data/
+
+# Python build artifacts
+*.egg-info/
+build/
+dist/
+
+# Test cache
+.pytest_cache/

@@ -11,7 +11,7 @@ def main():
         setup_console()
         
         # Initialize application
-        base_path = os.path.dirname(__file__)
+        base_path = os.path.abspath(os.path.dirname(__file__))
         menu = MenuHandler(base_path)
         
         # Show startup info
