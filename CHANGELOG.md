@@ -2,14 +2,27 @@
 
 ## Latest Release
 
-### v0.3.5 (27 August 2025)
-- **Critical Bug Fix**: Fixed Python SyntaxError in Uninstaller module that prevented application startup
-- **Python 3.10/3.11 Compatibility**: Resolved f-string backslash expression issue in PowerShell command generation
-- **Improved Stability**: Application now launches successfully on all supported Python versions
+### v0.3.6 (14 September 2025)
+- **Installer Script Robustness**: Improved path resolution using absolute paths to prevent issues with relative path handling
+- **Enhanced Gitignore**: Added comprehensive patterns for cache directories, build artifacts, and user data protection
+- **Bug Fix**: Resolved issue #28 regarding installer script robustness and path handling reliability
 
 ---
 
 ## All Releases
+
+### v0.3.6 (14 September 2025)
+
+#### Fixed
+- **Path Resolution Issue**: Enhanced path handling in main.py by using absolute paths (`os.path.abspath()`) to prevent relative path issues
+- **Installer Script Robustness**: Resolved issue #28 where path resolution could fail in certain environments
+
+#### Changed
+- **Gitignore Updates**: Added comprehensive patterns to prevent tracking of:
+  - Build artifacts (`*.egg-info/`, `build/`, `dist/`)
+  - Cache directories (`cache/`, `src/cache/`, `.pytest_cache/`)
+  - User data directories (`src/user_data/`)
+  - Backup and library directories (`src/backups/`, `src/library/`)
 
 ### v0.3.5 (27 August 2025)
 
