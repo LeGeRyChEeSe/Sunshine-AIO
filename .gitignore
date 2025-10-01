@@ -8,6 +8,7 @@ tools
 logs
 src/gui/
 src/gui_main.py
+CLAUDE.md
 GUI_README.md
 ISSUES_TO_CLOSE.md
 WIKI_SETUP_INSTRUCTIONS.md
@@ -29,3 +30,8 @@ dist/
 
 # Test cache
 .pytest_cache/
+
+# Test files
+test_*.py
+*_test.py
+test_results*.md

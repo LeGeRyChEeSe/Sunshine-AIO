@@ -232,7 +232,14 @@ class MenuHandler:
 
     def _execute_selection(self):
         # Execute the method associated with the user_input
-        self._get_selection()()
+        selection_func = self._get_selection()
+        selection_func()
+
+        # Add a pause after action execution, except for navigation and exit
+        # Navigation functions: _next_page, _previous_page, _back_to_main_menu, _show_uninstall_menu
+        # Exit function: sys.exit
+        if selection_func not in [self._next_page, self._previous_page, self._back_to_main_menu, self._show_uninstall_menu, sys.exit]:
+            input("\nPress Enter to continue...")
 
     def _show_uninstall_menu(self):
         """Display the uninstallation menu."""

@@ -387,6 +387,16 @@ class DownloadManager:
             response = requests.get(url)
             data = response.json()
 
+            # Define fallback patterns for backward compatibility
+            # This allows old patterns to work with new release naming conventions
+            fallback_patterns = {
+                "sunshine-windows-installer": ["Windows-AMD64-installer", "sunshine-windows-installer"],
+                "VDD.Control": ["VDD.Control"],  # Keep original pattern
+            }
+
+            # Get patterns to try (original + fallbacks)
+            patterns_to_try = fallback_patterns.get(name_filter, [name_filter])
+
             if download_type == "releases":
                 for release in data:
                     if not release["prerelease"]:
@@ -396,24 +406,48 @@ class DownloadManager:
                                 download_url = release["assets"][0]["browser_download_url"]
                                 break
                         else:
-                            for r in release['assets']:
-                                if name_filter in r['name']:
-                                    file_name = r['name']
-                                    download_url = r['browser_download_url']
+                            # Try each pattern until one matches
+                            for pattern in patterns_to_try:
+                                for r in release['assets']:
+                                    if pattern in r['name']:
+                                        file_name = r['name']
+                                        download_url = r['browser_download_url']
+                                        if pattern != name_filter:
+                                            log_info(f"Using fallback pattern '{pattern}' instead of '{name_filter}'")
+                                        break
+                                if download_url:
+                                    break
+                            if download_url:
+                                break
 
             elif download_type == "latest":
                 release = data
                 if not release["prerelease"]:
-                    for r in release['assets']:
-                        if name_filter in r['name']:
-                            file_name = r['name']
-                            download_url = r['browser_download_url']
+                    # Try each pattern until one matches
+                    for pattern in patterns_to_try:
+                        for r in release['assets']:
+                            if pattern in r['name']:
+                                file_name = r['name']
+                                download_url = r['browser_download_url']
+                                if pattern != name_filter:
+                                    log_info(f"Using fallback pattern '{pattern}' instead of '{name_filter}'")
+                                break
+                        if download_url:
+                            break
 
             elif download_type == "direct":
                 download_url = url
 
             else:
-                print("URL format is not supported.")
+                log_error("URL format is not supported.")
+                return ""
+
+            # Validate download URL before making request
+            if not download_url:
+                log_error(f"Could not find a matching download for pattern '{name_filter}' from GitHub releases")
+                log_info(f"GitHub URL: {url}")
+                log_info(f"Tried patterns: {patterns_to_try}")
+                log_info("Please check if the pattern matches any release assets")
                 return ""
 
             response = requests.get(download_url)
