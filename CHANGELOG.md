@@ -2,14 +2,33 @@
 
 ## Latest Release
 
-### v0.3.6 (14 September 2025)
-- **Installer Script Robustness**: Improved path resolution using absolute paths to prevent issues with relative path handling
-- **Enhanced Gitignore**: Added comprehensive patterns for cache directories, build artifacts, and user data protection
-- **Bug Fix**: Resolved issue #28 regarding installer script robustness and path handling reliability
+### v0.3.7 (1 October 2025)
+- **Enhanced GitHub Release Download**: Improved download reliability with fallback pattern matching for changing release naming conventions (resolves #39)
+- **Better Error Handling**: Added detailed logging when download patterns don't match release assets
+- **Improved User Experience**: Added pause after action execution for better menu readability
 
 ---
 
 ## All Releases
+
+### v0.3.7 (1 October 2025)
+
+#### Fixed
+- **GitHub Download Fallback Patterns**: Enhanced download system to handle changing release asset naming conventions (resolves #39)
+  - Added fallback pattern matching for components like Sunshine installer
+  - Improved error messages with detailed information when patterns don't match
+  - Better logging to help diagnose download issues
+
+#### Changed
+- **Menu User Experience**: Added pause after executing menu actions to allow users to read output messages
+  - Navigation functions (next/previous page, back to main) skip the pause for smoother navigation
+  - Improves readability and prevents important messages from disappearing
+
+#### Enhanced
+- **Download Manager Validation**: Added download URL validation before making requests
+- **Error Reporting**: More informative error messages including GitHub URL and attempted patterns
+
+### v0.3.6 (14 September 2025)
 
 ### v0.3.6 (14 September 2025)
 
