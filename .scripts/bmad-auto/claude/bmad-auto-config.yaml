@@ -1,0 +1,18 @@
+# BMAD Auto Configuration
+# ============================================================
+# This file is auto-generated during BMAD installation.
+# It contains paths specific to your project setup.
+#
+# You can modify these values if you change your BMAD configuration:
+# - output_folder: Where BMAD stores generated files
+# - implementation_artifacts: Where sprint-status.yaml is located
+# ============================================================
+
+# Absolute path to your project root directory
+project_root: "C:/Users/w133401/OneDrive - Worldline SA/Documents/Perso/Projets/Sunshine-AIO"
+
+# Relative path to BMAD output folder (from project root)
+output_folder: "_bmad-output"
+
+# Relative path to implementation artifacts (where sprint-status.yaml lives)
+implementation_artifacts: "_bmad-output/implementation-artifacts"
