@@ -181,14 +181,40 @@ context_file: ''
 
 ---
 
-## Prochaines Étapes Suggérées
+## Suite du Brainstorming
 
-1. Créer la spec technique détaillée (SPEC.md)
-2. Prototyper l'intro "big bang" en Three.js
-3. Mettre en place la structure Electron + Python IPC
-4. Développer le générateur procédural de planètes
-5. Intégrer le catalogue sunshine-aio-library
+*(Reprise du brainstorming - pas de code pour l'instant)*
+
+### Questions de perforation supplémentaires
+
+**Sur l'expérience utilisateur :**
+
+1. **Premiers pas utilisateur** - Comment l'utilisateur découvre-t-il qu'il peut installer des apps communautaires ? Il y a un indicateur visuel sur les planètes grisées ?
+
+2. **Recherche d'apps** - Tu prévois un moyen de rechercher une app spécifique ou on passe que par la navigation planètes ?
+
+3. **Détails d'une app** - Quand on clique sur une "ville" (app), on voit quoi ? Screenshot ? Description ? Version ? Bouton install ?
+
+4. **Updates** - Comment l'user voit qu'une app a une update dispo ? Icône ? Badge ? Notification ?
+
+**Sur le système solaire :**
+
+5. **Nombre de planètes** - Tu prévois combien de catégories max ? 5 ? 10 ? Plus ?
+
+6. **Ordre des planètes** - C'est trié comment ? Alphabétique ? Par usage ? Aléatoire ?
+
+7. **Planètes vides** - Si une catégorie n'a pas encore d'apps communautaires, la planète existe quand même ou elle apparaît quand la première app est ajoutée ?
+
+**Technique :**
+
+8. **Sauvegarde de l'état** - Si l'utilisateur ferme l'app et rouvre, le système solaire est régénéré ou restauré à l'identique ?
+
+9. **Mode offline** - L'app fonctionne sans internet ? Pour installer des updates, le catalogue doit être sync comment ?
+
+10. **Compatibilité** - C'est Windows only pour le début ou tu prévois direct le cross-platform ?
 
 ---
 
 ## Questions en cours
+
+*(En attente de réponses de l'utilisateur)*
