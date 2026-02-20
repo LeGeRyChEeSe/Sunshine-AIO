@@ -15,6 +15,7 @@ WIKI_SETUP_INSTRUCTIONS.md
 wiki_content/
 src/backups/
 src/library/
+sunshine-aio-library/
 
 # Cache directories
 cache/
