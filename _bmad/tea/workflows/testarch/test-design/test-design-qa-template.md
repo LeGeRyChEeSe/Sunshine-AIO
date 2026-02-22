@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-test-design'
+inputDocuments: []
 ---
 
 # Test Design for QA: {Feature Name}
@@ -52,7 +54,7 @@ lastSaved: ''
 
 **CRITICAL:** QA cannot proceed without these items from other teams.
 
-### Backend/Architecture Dependencies (Sprint 0)
+### Backend/Architecture Dependencies (Pre-Implementation)
 
 **Source:** See Architecture doc "Quick Guide" for detailed mitigation plans
 
@@ -64,7 +66,7 @@ lastSaved: ''
    - {What QA needs}
    - {Why it blocks testing}
 
-### QA Infrastructure Setup (Sprint 0)
+### QA Infrastructure Setup (Pre-Implementation)
 
 1. **Test Data Factories** - QA
    - {Entity} factory with faker-based randomization
@@ -125,7 +127,7 @@ test('example test @p0', async ({ apiRequest }) => {
 - [ ] All requirements and assumptions agreed upon by QA, Dev, PM
 - [ ] Test environments provisioned and accessible
 - [ ] Test data factories ready or seed data available
-- [ ] Sprint 0 blockers resolved (see Dependencies section)
+- [ ] Pre-implementation blockers resolved (see Dependencies section)
 - [ ] Feature deployed to test environment
 - [ ] {Additional project-specific entry criteria}
 
@@ -276,16 +278,16 @@ test('example test @p0', async ({ apiRequest }) => {
 
 ---
 
-## Sprint Planning Handoff (Optional)
+## Implementation Planning Handoff (Optional)
 
 **Include only if this test design produces implementation tasks that must be scheduled.**
 
-**Use this to inform sprint planning; if no dedicated QA, assign to Dev owners.**
+**Use this to inform implementation planning; if no dedicated QA, assign to Dev owners.**
 
-| Work Item   | Owner        | Target Sprint (Optional) | Dependencies/Notes |
-| ----------- | ------------ | ------------------------ | ------------------ |
-| {Work item} | {QA/Dev/etc} | {Sprint or date}         | {Notes}            |
-| {Work item} | {QA/Dev/etc} | {Sprint or date}         | {Notes}            |
+| Work Item   | Owner        | Target Milestone (Optional) | Dependencies/Notes |
+| ----------- | ------------ | --------------------------- | ------------------ |
+| {Work item} | {QA/Dev/etc} | {Milestone or date}         | {Notes}            |
+| {Work item} | {QA/Dev/etc} | {Milestone or date}         | {Notes}            |
 
 ---
 

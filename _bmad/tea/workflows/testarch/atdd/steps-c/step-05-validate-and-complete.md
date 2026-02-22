@@ -50,7 +50,18 @@ Fix any gaps before completion.
 
 ---
 
-## 2. Completion Summary
+## 2. Polish Output
+
+Before finalizing, review the complete output document for quality:
+
+1. **Remove duplication**: Progressive-append workflow may have created repeated sections — consolidate
+2. **Verify consistency**: Ensure terminology, risk scores, and references are consistent throughout
+3. **Check completeness**: All template sections should be populated or explicitly marked N/A
+4. **Format cleanup**: Ensure markdown formatting is clean (tables aligned, headers consistent, no orphaned references)
+
+---
+
+## 3. Completion Summary
 
 Report:
 
@@ -61,7 +72,7 @@ Report:
 
 ---
 
-## 3. Save Progress
+## 4. Save Progress
 
 **Save this step's accumulated work to `{outputFile}`.**
 

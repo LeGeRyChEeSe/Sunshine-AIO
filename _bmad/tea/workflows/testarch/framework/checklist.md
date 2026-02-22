@@ -8,10 +8,10 @@ This checklist ensures the framework workflow completes successfully and all del
 
 Before starting the workflow:
 
-- [ ] Project root contains valid `package.json`
-- [ ] No existing modern E2E framework detected (`playwright.config.*`, `cypress.config.*`)
-- [ ] Project type identifiable (React, Vue, Angular, Next.js, Node, etc.)
-- [ ] Bundler identifiable (Vite, Webpack, Rollup, esbuild) or not applicable
+- [ ] Project root contains a valid project manifest (`package.json`, `pyproject.toml`, `pom.xml`, `build.gradle`, `go.mod`, `*.csproj`, `Gemfile`, or `Cargo.toml`)
+- [ ] No existing test framework detected that conflicts with the target setup
+- [ ] Project type identifiable (React, Vue, Angular, Next.js, Node, Python, Java, Go, .NET, Ruby, Rust, etc.)
+- [ ] Bundler identifiable (Vite, Webpack, Rollup, esbuild) or not applicable (backend projects)
 - [ ] User has write permissions to create directories and files
 
 ---
@@ -20,7 +20,8 @@ Before starting the workflow:
 
 ### Step 1: Preflight Checks
 
-- [ ] package.json successfully read and parsed
+- [ ] Stack type detected (`frontend`, `backend`, or `fullstack`)
+- [ ] Project manifest successfully read and parsed (`package.json`, `pyproject.toml`, `pom.xml`, `go.mod`, etc.)
 - [ ] Project type extracted correctly
 - [ ] Bundler identified (or marked as N/A for backend projects)
 - [ ] No framework conflicts detected
@@ -29,8 +30,8 @@ Before starting the workflow:
 ### Step 2: Framework Selection
 
 - [ ] Framework auto-detection logic executed
-- [ ] Framework choice justified (Playwright vs Cypress)
-- [ ] Framework preference respected (if explicitly set)
+- [ ] Framework choice justified (Playwright vs Cypress for frontend; pytest/JUnit/Go test/xUnit/RSpec for backend)
+- [ ] Framework preference respected (if explicitly set via `config.test_framework`)
 - [ ] User notified of framework selection and rationale
 
 ### Step 3: Directory Structure
@@ -115,9 +116,9 @@ Before starting the workflow:
 - [ ] Knowledge base references included
 - [ ] Troubleshooting section included
 
-### Step 11: Package.json Updates
+### Step 11: Build & Test Script Updates
 
-- [ ] Minimal test script added to package.json: `test:e2e`
+- [ ] Minimal test script added to appropriate config (`package.json` for frontend, `Makefile`/`pyproject.toml`/`build.gradle` for backend)
 - [ ] Test framework dependency added (if not already present)
 - [ ] Type definitions added (if TypeScript)
 - [ ] Users can extend with additional scripts as needed
@@ -231,7 +232,7 @@ Before starting the workflow:
 - [ ] All quality checks passed
 - [ ] All integration points verified
 - [ ] Sample test executes successfully
-- [ ] User can run `npm run test:e2e` without errors
+- [ ] User can run the appropriate test command without errors (`npm run test:e2e`, `pytest`, `go test ./...`, etc.)
 - [ ] Documentation is complete and accurate
 - [ ] No critical issues or blockers identified
 

@@ -37,6 +37,10 @@ Choose the most appropriate framework and document the rationale.
 
 ## 1. Selection Logic
 
+Use `{detected_stack}` from Step 1 to guide framework selection.
+
+**If {detected_stack} is `frontend` or `fullstack` (browser-based testing):**
+
 Default to **Playwright** unless strong reasons suggest Cypress.
 
 **Playwright recommended when:**
@@ -52,7 +56,22 @@ Default to **Playwright** unless strong reasons suggest Cypress.
 - Component testing focus
 - Simpler setup needed
 
-Respect `framework_preference` if explicitly set.
+**If {detected_stack} is `backend` (no browser-based testing):**
+
+Select the framework matching the project language:
+
+- **Python**: pytest (default), unittest
+- **Java/Kotlin**: JUnit 5 (default), TestNG
+- **Go**: Go test (built-in)
+- **C#/.NET**: xUnit (default), NUnit, MSTest
+- **Ruby**: RSpec (default), Minitest
+- **Rust**: cargo test (built-in)
+
+**If {detected_stack} is `fullstack`:**
+
+Select both a browser-based framework (Playwright/Cypress) AND the appropriate backend framework for the detected language.
+
+Respect `config.test_framework` if explicitly set (not `"auto"`).
 
 ---
 

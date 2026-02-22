@@ -41,12 +41,17 @@ Use AI generation when:
 
 - Acceptance criteria are clear
 - Scenarios are standard (CRUD, auth, API, navigation)
+- **If {detected_stack} is `backend`:** Always use AI generation (no browser recording needed)
 
 Proceed directly to test strategy if this applies.
 
 ---
 
 ## 2. Optional Mode: Recording (Complex UI)
+
+**Skip this section entirely if {detected_stack} is `backend`.** For backend projects, use AI generation from API documentation, OpenAPI/Swagger specs, or source code analysis instead.
+
+**If {detected_stack} is `frontend` or `fullstack`:**
 
 Use recording when UI interactions need live browser verification.
 

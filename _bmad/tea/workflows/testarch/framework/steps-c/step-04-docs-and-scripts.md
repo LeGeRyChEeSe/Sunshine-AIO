@@ -10,7 +10,7 @@ progressFile: '{test_artifacts}/framework-setup-progress.md'
 
 ## STEP GOAL
 
-Create `tests/README.md` and update `package.json` scripts.
+Create test documentation and add build/test scripts appropriate for `{detected_stack}`.
 
 ## MANDATORY EXECUTION RULES
 
@@ -49,11 +49,23 @@ Create `{outputFile}` and include:
 
 ---
 
-## 2. package.json Scripts
+## 2. Build & Test Scripts
 
-Add at minimum:
+**If {detected_stack} is `frontend` or `fullstack`:**
 
-- `test:e2e`: framework execution command
+Add to `package.json` at minimum:
+
+- `test:e2e`: framework execution command (e.g., `npx playwright test`)
+
+**If {detected_stack} is `backend` or `fullstack`:**
+
+Add the idiomatic test commands for the detected framework:
+
+- **Python (pytest)**: Add to `pyproject.toml` scripts or `Makefile`: `pytest`, `pytest --cov`, `pytest -m integration`
+- **Java (JUnit)**: Add to `build.gradle`/`pom.xml`: `./gradlew test`, `mvn test`, `mvn verify` (integration)
+- **Go**: Add to `Makefile`: `go test ./...`, `go test -race ./...`, `go test -cover ./...`
+- **C#/.NET**: Add to CI scripts or `Makefile`: `dotnet test`, `dotnet test --collect:"XPlat Code Coverage"`
+- **Ruby (RSpec)**: Add to `Gemfile` binstubs or `Makefile`: `bundle exec rspec`, `bundle exec rspec spec/integration`
 
 ---
 
