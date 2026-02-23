@@ -95,7 +95,7 @@ npm create electron-app@latest sunshine-aio -- --template=vite
 **Architectural Decisions Provided by Starter:**
 
 **Language & Runtime:**
-- JavaScript/TypeScript avec ESM
+- JavaScript (ESM) - TypeScript will be considered in future stories if needed
 - Node.js runtime dans le processus renderer
 
 **Build Tooling:**
@@ -111,6 +111,27 @@ npm create electron-app@latest sunshine-aio -- --template=vite
 - Debugging via DevTools Electron
 
 **Note:** Project initialization using this command should be the first implementation story.
+
+### Implementation Notes (Story 1.1)
+
+**Actual Implementation Decisions:**
+
+1. **Language Choice**: JavaScript (not TypeScript) for initial setup - simplifies development and reduces build complexity. TypeScript can be added in future stories if needed.
+
+2. **Vite Configuration**: Using default Electron Forge Vite configuration without custom vite config files. The template provides sensible defaults that work out of the box.
+
+3. **Project Structure**: Kept flat `src/` directory structure as provided by Electron Forge template. The architecture.md structure with subdirectories (`src/main/`, `src/renderer/`, etc.) will be implemented in future stories when React/Three.js are added.
+
+4. **Makers Configuration**:
+   - Windows-only application: Squirrel.Windows for installer, ZIP for distribution
+   - Removed Linux makers (deb, rpm) and Darwin platform from zip
+
+5. **Security**:
+   - Content Security Policy configured in index.html
+   - Context isolation enabled
+   - Node integration disabled in renderer
+
+**Status (2026-02-23):** Story 1.1 completed - Electron Forge + Vite project initialized and verified
 
 ---
 
@@ -259,13 +280,44 @@ src/
 
 ### Complete Project Directory Structure
 
+> **Note (Story 1.1):** The current implementation uses a flat `src/` structure as required by Electron Forge + Vite template. The structure below (with `src/main/`, `src/renderer/`, `src/python/`) represents the **target architecture** that will be implemented in future stories when React/Three.js are added.
+
+**Current Structure (Story 1.1):**
 ```
 sunshine-aio/
 ├── package.json
-├── vite.config.ts
-├── electron-builder.json
-├── tsconfig.json
-├── .env.example
+├── forge.config.js
+├── vite.main.config.mjs
+├── vite.preload.config.mjs
+├── vite.renderer.config.mjs
+├── eslint.config.js
+├── vitest.config.js
+├── .prettierrc
+├── .editorconfig
+├── .gitignore
+├── README.md
+├── src/
+│   ├── main.js                 # Electron main process (flat - required by Vite)
+│   ├── preload.js              # Preload script (flat - required by Vite)
+│   ├── renderer.js            # Renderer process (flat - required by Vite)
+│   └── styles.css             # Styles (flat - required by Vite)
+├── index.html
+├── node_modules/
+└── out/                       # Build output
+```
+
+**Target Structure (Future Stories - after Story 2.1):**
+```
+sunshine-aio/
+├── package.json
+├── forge.config.js
+├── vite.main.config.mjs
+├── vite.preload.config.mjs
+├── vite.renderer.config.mjs
+├── eslint.config.js
+├── vitest.config.js
+├── .prettierrc
+├── .editorconfig
 ├── .gitignore
 ├── README.md
 ├── src/
