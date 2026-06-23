@@ -103,9 +103,29 @@ try {
 
   // Pin the initial view to the solar system so a brand-new install
   // lands on the right screen instead of waiting for the first user
-  // interaction.
-  if (store.getState().navigationState.currentView !== APP_VIEW.SOLAR_SYSTEM) {
-    store.getState().setCurrentView(APP_VIEW.SOLAR_SYSTEM);
+  // interaction. We must wait for the persist middleware to rehydrate
+  // before reading navigationState.currentView, otherwise the snapshot
+  // above reflects the in-memory defaults (always SOLAR_SYSTEM) and we
+  // would clobber a saved view like SETTINGS or PLANET_DETAIL on every
+  // relaunch. We only force SOLAR_SYSTEM when the persisted view is
+  // missing or unrecognised — never when the user has explicitly chosen
+  // another view.
+  const persistApi = store.persist;
+  const pinInitialView = () => {
+    const persistedView = store.getState().navigationState.currentView;
+    if (!Object.values(APP_VIEW).includes(persistedView)) {
+      store.getState().setCurrentView(APP_VIEW.SOLAR_SYSTEM);
+    }
+  };
+  if (persistApi && typeof persistApi.onFinishHydration === 'function') {
+    persistApi.onFinishHydration(pinInitialView);
+    if (typeof persistApi.hasHydrated === 'function' && persistApi.hasHydrated()) {
+      pinInitialView();
+    }
+  } else {
+    // No persist API exposed (shouldn't happen for our store, but be
+    // defensive): fall back to the old behavior.
+    pinInitialView();
   }
 
   logger('[Renderer] Sunshine AIO renderer online (Story 2-1)');

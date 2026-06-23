@@ -127,8 +127,15 @@ const defaultStorage = () => {
 
 /**
  * Migration table. Each entry receives `(persistedState, version)` and
- * returns a state compatible with the new version. Unknown older versions
- * fall through to a hard reset so the app never blocks on a corrupt blob.
+ * returns a state compatible with the new version.
+ *
+ * Resolution contract: when the persisted version has no registered
+ * migrator, the persisted blob is treated as untrusted and discarded.
+ * `runMigration` returns `undefined` in that case, which Zustand's
+ * `persist` middleware interprets as "no persisted state — use
+ * `initialState`". This prevents a corrupt or stale shape from being
+ * merged with the new defaults via `mergeSlices` and silently producing
+ * a hybrid object that satisfies none of the new invariants.
  */
 const migrations = {
   // No migrations yet — first version.
@@ -142,7 +149,9 @@ const runMigration = (persistedState, version) => {
   if (typeof migrator === 'function') {
     return migrator(persistedState, version);
   }
-  return persistedState;
+  // Unknown older version with no migrator: hard reset.
+  // Returning undefined tells persist to fall back to initialState().
+  return undefined;
 };
 
 /**

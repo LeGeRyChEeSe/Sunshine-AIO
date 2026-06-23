@@ -254,12 +254,28 @@ export const createScene = (opts) => {
   let resizeListener = null;
 
   const handleResize = () => {
-    const w = canvas.clientWidth || initialWidth;
-    const h = canvas.clientHeight || initialHeight;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    // Mirror the setSize() guards: a canvas that is not yet laid out
+    // (display:none, hidden during a theme switch, or simply zero-sized
+    // at first paint) reports clientWidth/clientHeight === 0. Calling
+    // renderer.setSize(0, 0) corrupts the WebGL framebuffer and throws
+    // GL_INVALID_FRAMEBUFFER_OPERATION on the next render. Skip the
+    // resize and keep the previous valid dimensions; we will get
+    // another resize event as soon as the canvas is laid out.
+    const rawW = canvas.clientWidth;
+    const rawH = canvas.clientHeight;
+    const fallbackW = rawW > 0 ? rawW : initialWidth;
+    const fallbackH = rawH > 0 ? rawH : initialHeight;
+    if (!Number.isFinite(fallbackW) || !Number.isFinite(fallbackH) || fallbackW <= 0 || fallbackH <= 0) {
+      logger('[Three] Resize skipped: invalid canvas dimensions', {
+        clientWidth: rawW,
+        clientHeight: rawH,
+      });
+      return;
+    }
+    renderer.setSize(fallbackW, fallbackH, false);
+    camera.aspect = fallbackW / fallbackH;
     camera.updateProjectionMatrix();
-    logger('[Three] Resize', { width: w, height: h });
+    logger('[Three] Resize', { width: fallbackW, height: fallbackH });
   };
 
   const attachResizeListener = () => {
