@@ -209,22 +209,32 @@ const isAdminElevationRateLimited = (senderId) => {
     windowStart: now,
     countInWindow: 0,
   };
-  // Hard ceiling: no more than N requests in any rolling 60s window.
+  // Reset the rolling 60s window if it has elapsed.
   if (now - state.windowStart >= 60_000) {
     state.windowStart = now;
     state.countInWindow = 0;
   }
-  state.countInWindow += 1;
-  if (state.countInWindow > MAX_ELEVATION_REQUESTS_PER_MINUTE) {
-    elevationRateState.set(senderId, state);
-    return true;
-  }
-  // Minimum spacing: even within the per-minute budget, require
+  // Check both limits BEFORE incrementing. A rejected attempt (whether
+  // for spacing or for hitting the per-minute cap) must NOT consume the
+  // per-minute budget — otherwise a tight 0.5s loop could exhaust the
+  // 3-per-minute cap purely on rejected calls, and the cap is meant to
+  // bound UAC prompts (i.e. accepted attempts), not blocked ones.
+  //
+  // Minimum spacing first: even within the per-minute budget, require
   // 2s between requests so a tight loop cannot burst them.
   if (now - state.lastCallAt < MIN_ELEVATION_INTERVAL_MS) {
     elevationRateState.set(senderId, state);
     return true;
   }
+  // Hard ceiling: no more than N accepted requests in any rolling 60s
+  // window.
+  if (state.countInWindow >= MAX_ELEVATION_REQUESTS_PER_MINUTE) {
+    elevationRateState.set(senderId, state);
+    return true;
+  }
+  // Accept: only now do we consume the per-minute budget and record
+  // the spacing timestamp.
+  state.countInWindow += 1;
   state.lastCallAt = now;
   elevationRateState.set(senderId, state);
   return false;
@@ -933,8 +943,10 @@ app.on('before-quit', (event) => {
   // swallowing real shutdown close events.
   _isQuitting = true;
   if (!pythonBridge) {
-    // No bridge to drain; dispose the tray now and re-issue quit
-    // so the will-quit flush path still runs.
+    // No bridge to drain; dispose the tray now. We do NOT call
+    // app.quit() here — returning without preventing the default
+    // lets the original quit proceed straight to will-quit, where
+    // the logger-flush path runs.
     try {
       disposeTrayManager();
     } catch (err) {
