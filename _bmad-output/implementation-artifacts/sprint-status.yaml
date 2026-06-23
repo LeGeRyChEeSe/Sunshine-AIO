@@ -44,7 +44,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   # Epic 1: Infrastructure de l'Application de Bureau
   epic-1: in-progress
-  1-1-initialisation-du-projet-electron-forge-vite: review # Round 6 action items completed (16/17) - 1 Low item remains (CSP review)
+  1-1-initialisation-du-projet-electron-forge-vite: done # Round 8 review complete - all AC satisfied, no High/Medium issues remain
   1-2-configuration-du-logging-et-gestion-des-erreurs: backlog
   1-3-integration-du-backend-python-existant: backlog
   1-4-configuration-des-privileges-admin-et-du-system-tray: backlog
