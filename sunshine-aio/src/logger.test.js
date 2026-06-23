@@ -61,10 +61,22 @@ describe('formatLogLine', () => {
   });
 
   it('falls back gracefully when metadata cannot be serialized', () => {
+    // Circular references are recovered with a '[Circular]' marker so the
+    // surrounding shape survives. The classic '[unserializable meta]'
+    // fallback is only used as a last resort.
     const cyclic = {};
     cyclic.self = cyclic;
     const line = formatLogLine('warn', 'cyclic', cyclic, new Date('2026-01-01T00:00:00.000Z'));
-    expect(line).toContain('[unserializable meta]');
+    expect(line).toContain('[Circular]');
+  });
+
+  it('serializes BigInt values rather than dropping the whole entry', () => {
+    const meta = { count: 42n, label: 'big' };
+    const line = formatLogLine('info', 'big', meta, new Date('2026-01-01T00:00:00.000Z'));
+    // BigInt is rendered with a trailing 'n' (common JSON convention) so
+    // it is clearly distinguishable from a regular number in the log.
+    expect(line).toContain('42n');
+    expect(line).not.toContain('[unserializable meta]');
   });
 
   it('preserves ES2022 Error.cause chain on an Error meta', () => {
@@ -232,11 +244,21 @@ describe('createLogger', () => {
   });
 
   it('rotates the file when MAX_FILE_SIZE_BYTES is exceeded (AC: rotation)', async () => {
-    // Custom fs that reports a huge file size to trigger rotation on first write
+    // Custom fs that reports a huge file size to trigger rotation on first
+    // write. The existsSync is true for the current log file AND for all
+    // the rotation slots (.1 .. .MAX_FILES) so the full shift chain
+    // executes: .4 -> .5, .3 -> .4, ..., current -> .1, and the oldest
+    // (.5) is unlinked. A narrower stub would only exercise the
+    // current->.1 step and silently miss a regression in the shift loop.
     let writeCount = 0;
+    const fileBase = 'sunshine-aio-2026-06-23.log';
     const fakeFs = {
       existsSync: vi.fn((p) => {
-        if (p.endsWith('sunshine-aio-2026-06-23.log')) return true;
+        const base = path.basename(p);
+        if (base === fileBase) return true;
+        for (let i = 1; i <= MAX_FILES; i += 1) {
+          if (base === `${fileBase}.${i}`) return true;
+        }
         return false;
       }),
       statSync: vi.fn(() => ({ size: MAX_FILE_SIZE_BYTES })),
@@ -249,6 +271,11 @@ describe('createLogger', () => {
       rmSync: vi.fn(),
       readFileSync: vi.fn(),
       writeFileSync: vi.fn(),
+      openSync: vi.fn(() => {
+        throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+      }),
+      writeSync: vi.fn(),
+      closeSync: vi.fn(),
     };
 
     const logger = createLogger({
@@ -263,6 +290,28 @@ describe('createLogger', () => {
 
     expect(fakeFs.renameSync).toHaveBeenCalled();
     expect(writeCount).toBeGreaterThanOrEqual(1);
+
+    // Verify the full shift chain executed in the right order: .4 -> .5,
+    // .3 -> .4, .2 -> .3, .1 -> .2, current -> .1. The .4->.5 step
+    // would not happen if the loop order is wrong, so we check it
+    // explicitly.
+    const renameCalls = fakeFs.renameSync.mock.calls.map((c) => [
+      path.basename(c[0]),
+      path.basename(c[1]),
+    ]);
+    const currentToOne = renameCalls.find(
+      ([from, to]) => from === fileBase && to === `${fileBase}.1`
+    );
+    expect(currentToOne).toBeDefined();
+    const fourToFive = renameCalls.find(
+      ([from, to]) => from === `${fileBase}.4` && to === `${fileBase}.5`
+    );
+    expect(fourToFive).toBeDefined();
+
+    // Oldest backup (.5) must be unlinked before the shift so it does
+    // not get overwritten by the .4 -> .5 rename.
+    const unlinkCalls = fakeFs.unlinkSync.mock.calls.map((c) => path.basename(c[0]));
+    expect(unlinkCalls).toContain(`${fileBase}.${MAX_FILES}`);
   });
 
   it('rotates again if a single append pushed the file over MAX_FILE_SIZE_BYTES', async () => {
@@ -319,11 +368,12 @@ describe('createLogger', () => {
     expect(fakeFs.renameSync).toHaveBeenCalled();
   });
 
-  it('handles missing logs directory by creating it lazily (no throw)', async () => {
+  it('creates the logs directory synchronously in constructor (not lazily)', async () => {
+    // The directory must exist after createLogger returns, before any
+    // write() call. This is the documented behavior — not lazy creation.
     const fresh = path.join(tempDir, 'fresh');
-    const logger = createLogger({ logsDir: fresh, consoleLevel: 'error' });
-    logger.info('hello');
-    await logger.flush();
+    expect(fs.existsSync(fresh)).toBe(false);
+    createLogger({ logsDir: fresh, consoleLevel: 'error' });
     expect(fs.existsSync(fresh)).toBe(true);
   });
 
@@ -345,7 +395,13 @@ describe('createLogger', () => {
   });
 
   it('survives filesystem write failures without throwing to the caller', async () => {
-    const failingFs = {
+    // Two distinct failure modes to cover:
+    //   (a) existsSync false -> no statSync, appendFileSync throws.
+    //   (b) existsSync true, statSync throws during the size check.
+    // In both, logger.error() must not throw to the caller, and the
+    // pendingWrites chain must RESOLVE (not reject) so subsequent
+    // writes are not pinned to a poisoned chain.
+    const failingFsA = {
       existsSync: () => false,
       statSync: () => {
         throw new Error('disk gone');
@@ -358,15 +414,47 @@ describe('createLogger', () => {
       unlinkSync: () => {},
     };
 
-    const logger = createLogger({
+    const loggerA = createLogger({
       logsDir: tempDir,
       consoleLevel: 'error',
-      fs: failingFs,
+      fs: failingFsA,
       now: () => new Date('2026-06-23T10:00:00.000Z'),
     });
 
-    expect(() => logger.error('boom')).not.toThrow();
-    await logger.flush();
+    expect(() => loggerA.error('boom')).not.toThrow();
+    // The flush() promise must resolve, not reject — that is the
+    // guarantee that the chain has not been poisoned.
+    await expect(loggerA.flush()).resolves.not.toThrow();
+
+    // (b) existsSync true, statSync throws during the rotation size-check.
+    // The try/catch around the rotation block must absorb the error AND
+    // the subsequent appendFileSync must still execute. This guards
+    // against a regression where a statSync failure would short-circuit
+    // the write entirely.
+    const failingFsB = {
+      existsSync: () => true,
+      statSync: () => {
+        throw new Error('disk gone');
+      },
+      appendFileSync: vi.fn(),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      mkdirSync: () => {},
+    };
+
+    const loggerB = createLogger({
+      logsDir: tempDir,
+      consoleLevel: 'error',
+      fs: failingFsB,
+      now: () => new Date('2026-06-23T10:00:00.000Z'),
+    });
+
+    expect(() => loggerB.error('boom-2')).not.toThrow();
+    await loggerB.flush();
+    // Despite the failing statSync, appendFileSync must still be called —
+    // the per-write try/catch absorbs the statSync error and the code
+    // falls through to the append.
+    expect(failingFsB.appendFileSync).toHaveBeenCalled();
   });
 });
 

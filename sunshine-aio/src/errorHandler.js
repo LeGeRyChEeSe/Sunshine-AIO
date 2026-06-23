@@ -18,12 +18,20 @@
  * The goal is to give the user enough info to act, but not to drown them
  * in stack traces — those go to the log file instead.
  */
+// Match network-related error messages. Kept narrow on purpose: a broad
+// /network|fetch/ would catch benign phrases like "fetched the user
+// preferences" or "refetch on focus" and misclassify them as network
+// errors. The patterns below correspond to the actual error text that
+// Node, the DOM fetch API, and common HTTP libraries emit.
+const NETWORK_ERROR_PATTERN =
+  /\b(network error|network request failed|failed to fetch|fetch failed|networkerror|net::err_)/i;
+
 export const buildFriendlyMessage = (err) => {
   if (err instanceof Error) {
     if (err.name === 'TypeError') {
       return 'Something went wrong while processing data. Please try again.';
     }
-    if (err.name === 'NetworkError' || /network|fetch/i.test(err.message)) {
+    if (err.name === 'NetworkError' || NETWORK_ERROR_PATTERN.test(err.message)) {
       return 'A network problem was detected. Please check your connection and try again.';
     }
     return 'An unexpected error occurred. The technical details have been saved to the log file.';

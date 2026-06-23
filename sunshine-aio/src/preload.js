@@ -35,9 +35,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     // Use a subscription-based approach with proper isolation
     // Only allow receiving messages for whitelisted channels
+    //
+    // For ipcRenderer.on, event.sender is the WebContents that SENT the
+    // message. In our model, all incoming traffic is from the main
+    // process (the only WebContents that can push through ipcMain.on).
+    // We guard against invoking the callback after the sender has been
+    // destroyed (e.g. main window closed) to avoid touching freed
+    // resources. The check is intentionally an isDestroyed() guard on
+    // the sender — a live-but-disconnected sender is still safe to
+    // forward to; a destroyed one is not.
     const subscription = (event, ...args) => {
-      // Verify the event originates from the main process
-      if (event.sender && !event.sender.isDestroyed()) {
+      const senderIsMain = event.sender && !event.sender.isDestroyed();
+      if (senderIsMain) {
         callback(...args);
       }
     };

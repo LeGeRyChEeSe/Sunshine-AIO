@@ -50,17 +50,83 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   logger.error('Unhandled promise rejection in main process', err);
+  // A promise rejection that nothing handled can leave the main process in
+  // a corrupted state (inconsistent globals, leaked resources). Node 15+
+  // exits by default; Electron can override that, so be explicit. A future
+  // enhancement could gate this on a dev flag if we need hot-reload.
+  logger
+    .flush()
+    .catch((flushErr) => {
+      try {
+        process.stderr.write(`Fatal logger flush failed: ${flushErr.message}\n`);
+      } catch {}
+    })
+    .finally(() => {
+      app.exit(1);
+    });
 });
 
 // Register IPC handlers ONCE at module load. Doing this inside createWindow()
 // would re-register on every window recreation (macOS reactivation, reload,
 // future multi-window support) and cause every renderer log to be duplicated.
-ipcMain.handle('log:write', (_event, payload) => {
+
+// Limits for the log:write IPC payload. A compromised or buggy renderer
+// could otherwise send arbitrarily large or deeply-nested payloads that
+// would spike memory in the main process or stall JSON serialization.
+const MAX_LOG_PAYLOAD_BYTES = 64 * 1024; // 64 KiB total per message
+const MAX_LOG_META_DEPTH = 5;
+const MAX_LOG_MESSAGES_PER_SECOND = 100;
+const logRateState = new Map(); // senderId -> { count, windowStart }
+
+const isPayloadTooLarge = (payload) => {
+  try {
+    return Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_LOG_PAYLOAD_BYTES;
+  } catch {
+    // Cyclic or otherwise unserializable payload is rejected as too large
+    // so a buggy renderer cannot stall us with a try/catch loop.
+    return true;
+  }
+};
+
+const isMetaTooDeep = (value, depth = 0) => {
+  if (depth > MAX_LOG_META_DEPTH) return true;
+  if (value === null || typeof value !== 'object') return false;
+  for (const key of Object.keys(value)) {
+    if (isMetaTooDeep(value[key], depth + 1)) return true;
+  }
+  return false;
+};
+
+const isRateLimited = (senderId) => {
+  const now = Date.now();
+  const state = logRateState.get(senderId) || { count: 0, windowStart: now };
+  if (now - state.windowStart >= 1000) {
+    state.count = 0;
+    state.windowStart = now;
+  }
+  state.count += 1;
+  logRateState.set(senderId, state);
+  return state.count > MAX_LOG_MESSAGES_PER_SECOND;
+};
+
+ipcMain.handle('log:write', (event, payload) => {
   if (!payload || typeof payload !== 'object') {
     logger.warn('Renderer sent invalid log payload');
-    return { ok: false };
+    return { ok: false, reason: 'invalid payload' };
+  }
+  if (isPayloadTooLarge(payload)) {
+    logger.warn('Renderer sent oversized log payload');
+    return { ok: false, reason: 'payload too large' };
   }
   const { level, message, meta } = payload;
+  if (meta !== undefined && meta !== null && isMetaTooDeep(meta)) {
+    logger.warn('Renderer sent log payload with too-deep meta');
+    return { ok: false, reason: 'meta too deep' };
+  }
+  const senderId = event && event.sender ? event.sender.id : 'unknown';
+  if (isRateLimited(senderId)) {
+    return { ok: false, reason: 'rate limited' };
+  }
   const safeLevel = ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info';
   logger[safeLevel](`[renderer] ${typeof message === 'string' ? message : ''}`, meta);
   return { ok: true };

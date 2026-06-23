@@ -36,19 +36,35 @@ import { buildFriendlyMessage, formatReportedError, toLogPayload } from './error
 /**
  * Send the error to the main-process logger. Falls back to console.error
  * when the bridge is unavailable (e.g. running unit tests in node).
+ *
+ * Returns a promise that resolves once the main process has acknowledged
+ * the log (or after falling back to console). Callers can chain UI
+ * actions — such as showing a toast — on this promise so the user is
+ * not told "we logged it" if logging silently failed.
  */
 const reportError = (level, message, err) => {
   const payload = toLogPayload(level, message, err);
-  try {
-    if (window.electronAPI && typeof window.electronAPI.log === 'function') {
-      window.electronAPI.log(payload.level, payload.message, payload.meta);
-      return;
+  if (window.electronAPI && typeof window.electronAPI.log === 'function') {
+    try {
+      const result = window.electronAPI.log(payload.level, payload.message, payload.meta);
+      // The bridge returns a promise (or a sync value). Normalize to a
+      // promise so we can attach a .catch fallback for IPC failures.
+      if (result && typeof result.then === 'function') {
+        return result.catch((ipcErr) => {
+          console[level === 'error' ? 'error' : 'warn'](formatReportedError(payload), ipcErr);
+        });
+      }
+      return Promise.resolve(result);
+    } catch (bridgeErr) {
+      // Synchronous throw from the bridge (e.g. preload crashed). Fall
+      // through to the console fallback.
+      console[level === 'error' ? 'error' : 'warn'](formatReportedError(payload), bridgeErr);
+      return Promise.resolve();
     }
-  } catch {
-    // bridge failed; fall through to console fallback
   }
 
   console[level === 'error' ? 'error' : 'warn'](formatReportedError(payload));
+  return Promise.resolve();
 };
 
 /**
@@ -87,10 +103,15 @@ const showErrorToast = (message, durationMs = 5000) => {
  * The single integration point that wires a thrown/rejected error into both
  * the main-process logger and a user-visible toast. Used by the window
  * `error` and `unhandledrejection` listeners below.
+ *
+ * The toast is shown only after the main-process logger has acknowledged
+ * the entry. Otherwise a transient IPC failure would leave the user
+ * staring at a "logged to file" message that was never actually logged.
  */
 const handleRendererError = (err, sourceLabel) => {
-  reportError('error', sourceLabel, err);
-  showErrorToast(buildFriendlyMessage(err));
+  reportError('error', sourceLabel, err).then(() => {
+    showErrorToast(buildFriendlyMessage(err));
+  });
 };
 
 // ---- Global error traps ----------------------------------------------------
