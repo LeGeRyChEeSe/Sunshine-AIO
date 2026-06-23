@@ -6,6 +6,11 @@ import { PythonBridge } from './pythonBridge.js';
 import { isScriptPathSafe } from './scriptPathGuard.js';
 import { initTrayManager, disposeTrayManager } from './tray.js';
 import { loadSettings, saveSettings } from './settings.js';
+import {
+  isRunningAsAdmin,
+  requestAdminElevation,
+  _resetIsElevatedCache,
+} from './adminElevation.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -37,76 +42,11 @@ if (started) {
 
 const isWindows = process.platform === 'win32';
 
-/**
- * True when the current process is running as administrator (Windows)
- * or root (other platforms — never the case here, but we keep the
- * helper portable so the same call site works in CI).
- *
- * Implementation: `process.isElevated` is a Squirrel-injected flag in
- * some packaged Windows builds but not in dev. We fall back to a
- * `whoami /groups` parse which is reliable but slow; cache the result
- * after the first call so subsequent checks are free.
- */
-let _isElevatedCache = null;
-export const isRunningAsAdmin = () => {
-  if (_isElevatedCache !== null) return _isElevatedCache;
-  if (!isWindows) {
-    _isElevatedCache = false;
-    return _isElevatedCache;
-  }
-  try {
-    // `process.isElevated` is set by the Squirrel installer for
-    // production builds. In dev (electron-forge start) it is undefined.
-    if (typeof process.isElevated === 'boolean') {
-      _isElevatedCache = process.isElevated;
-      return _isElevatedCache;
-    }
-  } catch {
-    // ignore — fall through to default
-  }
-  // Default to false when we cannot determine the state. Callers
-  // should treat "unknown" as "needs elevation" and prompt the user.
-  _isElevatedCache = false;
-  return _isElevatedCache;
-};
-
-/**
- * Re-launch the current executable with elevation (Windows UAC).
- * Uses `shell.openPath` on the same executable with the `runas` verb
- * via `ShellExecute`. Returns a promise that resolves once the new
- * process has been spawned. The current process should quit shortly
- * afterwards via `app.quit()`.
- *
- * On non-Windows platforms this is a no-op that resolves with
- * `{ ok: false, reason: 'unsupported' }`.
- */
-export const requestAdminElevation = async () => {
-  if (!isWindows) {
-    return { ok: false, reason: 'unsupported platform' };
-  }
-  try {
-    const exePath = process.execPath;
-    // `shell.openPath` runs ShellExecute under the hood with the
-    // default verb. To force `runas` we use the lower-level
-    // `shell.trashItem`-equivalent — but Electron does not expose
-    // ShellExecute directly. Workaround: spawn `cmd.exe /c` with the
-    // `runas` verb via the start command. This is the documented
-    // pattern for runtime elevation from an Electron app.
-    const { spawn } = await import('node:child_process');
-    spawn('cmd.exe', ['/c', 'start', '""', '/wait', '/high', exePath], {
-      detached: true,
-      stdio: 'ignore',
-      shell: false,
-    }).unref();
-    return { ok: true };
-  } catch (err) {
-    logger.error('Failed to request admin elevation', err);
-    return {
-      ok: false,
-      reason: err && err.message ? err.message : String(err),
-    };
-  }
-};
+// Re-export admin helpers from the dedicated module so existing
+// consumers (preload, tests) keep working unchanged. The actual
+// implementations live in `./adminElevation.js` and are unit-tested
+// there.
+export { isRunningAsAdmin, requestAdminElevation };
 
 // Set the AppUserModelID early so Windows toast notifications and
 // taskbar grouping use a stable identity. This MUST be set before
@@ -544,23 +484,180 @@ ipcMain.handle('settings:set-minimize-to-tray', (_event, value) => {
 // perspective — actual privilege state is owned by the main process.
 
 ipcMain.handle('admin:get-status', () => {
-  return { ok: true, isAdmin: isRunningAsAdmin(), platform: process.platform };
+  // `forceFresh` ensures the renderer always gets the current truth,
+  // even if a previous call cached the wrong answer. The cost is a
+  // single `whoami /groups` invocation (< 100 ms on Windows).
+  return { ok: true, isAdmin: isRunningAsAdmin({ forceFresh: true }), platform: process.platform };
 });
 
+// Constants for the elevation handshake. The elevated child, on
+// startup, writes a marker file to a well-known location and then
+// removes it after the parent has had a chance to read it. The
+// parent polls for the file and only quits once it sees evidence
+// that the child actually launched. This prevents the
+// "user clicked Restart, parent quit, child never showed up" failure
+// mode where the user is left without ANY application running.
+const ELEVATION_MARKER_FILENAME = 'sunshine-aio-elevation-marker.json';
+const ELEVATION_MARKER_TIMEOUT_MS = 15000;
+const ELEVATION_MARKER_POLL_INTERVAL_MS = 250;
+
+const computeElevationMarkerPath = () => {
+  // Use a directory that is writable by both the parent and the
+  // elevated child (which runs as a different user session in some
+  // configurations). process.env.TEMP is the safest cross-session
+  // scratch directory on Windows.
+  const base = process.env.TEMP || process.env.TMP || app.getPath('temp');
+  return path.join(base, ELEVATION_MARKER_FILENAME);
+};
+
+const waitForElevationMarker = (markerPath, timeoutMs) => {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      try {
+        const fs = require('node:fs');
+        if (fs.existsSync(markerPath)) {
+          // Best-effort cleanup so the marker does not linger into
+          // the next launch. Errors here are non-fatal — if the file
+          // is locked by AV, the next session's stale-marker check
+          // would discard it anyway.
+          try {
+            const raw = fs.readFileSync(markerPath, 'utf8');
+            fs.unlinkSync(markerPath);
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && parsed.elevated === true) {
+                resolve({ ok: true });
+                return;
+              }
+            } catch {
+              // Malformed marker: still treat as evidence the child
+              // started — it had to call us to write the file at all.
+              resolve({ ok: true });
+              return;
+            }
+          } catch {
+            resolve({ ok: true });
+            return;
+          }
+        }
+      } catch {
+        // fs.existsSync failed (permissions, etc.) — keep polling.
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve({ ok: false, reason: 'timeout waiting for elevated child' });
+        return;
+      }
+      setTimeout(tick, ELEVATION_MARKER_POLL_INTERVAL_MS);
+    };
+    tick();
+  });
+};
+
 ipcMain.handle('admin:request-elevation', async () => {
-  if (isRunningAsAdmin()) {
+  if (isRunningAsAdmin({ forceFresh: true })) {
     return { ok: true, alreadyElevated: true };
   }
-  const result = await requestAdminElevation();
-  if (result.ok) {
-    // Quit the non-elevated instance once the elevated one is launched
-    // so the user does not end up with two copies of the app. Use a
-    // short delay so the spawned process has time to initialize before
-    // we tear down.
-    setTimeout(() => app.quit(), 500);
+  // The elevated child writes a marker file at startup so the parent
+  // can confirm the child actually launched before tearing itself
+  // down. Compute the path NOW so both sides agree on the location
+  // (the child's working directory may differ from the parent's).
+  const markerPath = computeElevationMarkerPath();
+  // Pass a sentinel CLI flag to the elevated child. When the child
+  // sees this flag at startup, it writes the marker file. The flag
+  // is intentionally obscure so a normal user double-click cannot
+  // accidentally trigger the handshake path.
+  const handshakeFlag = '--sunshine-aio-elevation-handshake';
+  const result = await requestAdminElevation({
+    handshakeArgs: [handshakeFlag, markerPath],
+  });
+  if (!result.ok) {
+    // Elevation failed (user cancelled UAC, spawn error, etc.). Do
+    // NOT quit the parent — the user still needs a working app.
+    logger.warn('Admin elevation request failed', { reason: result.reason });
+    return result;
   }
-  return result;
+  // Handshake: wait for the elevated child to drop a marker file
+  // before quitting. If we never see it (UAC declined, child
+  // crashed at startup, etc.), the parent stays alive and the user
+  // keeps their session.
+  const handshake = await waitForElevationMarker(markerPath, ELEVATION_MARKER_TIMEOUT_MS);
+  if (!handshake.ok) {
+    logger.warn('Elevation handshake timed out; staying alive', {
+      reason: handshake.reason,
+    });
+    return { ok: false, reason: handshake.reason, elevatedChildSpawned: true };
+  }
+  // Confirmed elevated child is up. Give it a brief head start
+  // (250 ms) to finish initializing its own logger / IPC handlers
+  // before the parent's `before-quit` tears down shared resources.
+  // Then quit. We do NOT use `app.exit(0)` so the normal teardown
+  // path runs (logger flush, tray dispose, Python bridge quit).
+  setTimeout(() => {
+    logger.info('Quitting parent after successful elevation handshake');
+    app.quit();
+  }, 250);
+  return { ok: true, elevatedChildConfirmed: true };
 });
+
+// --------------------------------------------------------------------------
+// Elevated-child handshake
+// --------------------------------------------------------------------------
+//
+// When this process is launched by a non-elevated parent via
+// `requestAdminElevation()`, the parent passes two extra CLI args:
+//   1. `--sunshine-aio-elevation-handshake` (sentinel flag)
+//   2. The absolute path of the marker file the parent is polling for.
+//
+// If we see the sentinel at startup, write the marker immediately so
+// the parent can confirm this elevated instance is alive and tear
+// itself down. The marker is written BEFORE `app.whenReady()` resolves
+// so the parent's `waitForElevationMarker` resolves as soon as possible
+// — we want to minimize the window where the user has no running
+// app.
+//
+// We also reset the elevation cache so subsequent `isRunningAsAdmin`
+// calls inside this (elevated) instance return the correct value.
+// Without the reset, a process that inherited a stale cache from a
+// previous unelevated run would still report `false`.
+
+{
+  const HANDSHAKE_FLAG = '--sunshine-aio-elevation-handshake';
+  const argv = process.argv || [];
+  const flagIndex = argv.indexOf(HANDSHAKE_FLAG);
+  if (flagIndex !== -1) {
+    const markerPath = argv[flagIndex + 1];
+    if (markerPath && typeof markerPath === 'string') {
+      // Force the cached elevation result to refresh on the next
+      // call. The current process is by definition the elevated
+      // child — it just got past the UAC prompt — so a fresh probe
+      // will return true.
+      _resetIsElevatedCache();
+      try {
+        const fs = require('node:fs');
+        const payload = JSON.stringify({
+          elevated: true,
+          pid: process.pid,
+          ts: Date.now(),
+        });
+        fs.writeFileSync(markerPath, payload, { encoding: 'utf8' });
+        // Best-effort: also log to stderr so an external observer
+        // (CI, logs/) can see the handshake fired.
+        try {
+          process.stderr.write(`[elevation-handshake] marker written to ${markerPath}\n`);
+        } catch {}
+      } catch (err) {
+        try {
+          process.stderr.write(
+            `[elevation-handshake] failed to write marker: ${
+              err && err.message ? err.message : String(err)
+            }\n`
+          );
+        } catch {}
+      }
+    }
+  }
+}
 
 const createWindow = () => {
   // Create the browser window.

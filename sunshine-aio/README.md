@@ -50,9 +50,12 @@ rules). The privilege model is split in two:
    the user attempts an operation that requires admin, the renderer
    can call `electronAPI.requestAdminElevation()` (or the user clicks
    the "Restart as administrator" button in Settings). The main
-   process spawns `cmd.exe /c start /high <exe>` to trigger a UAC
-   prompt and re-launches the app elevated. The current non-elevated
-   instance then quits.
+   process spawns `powershell.exe -Command "Start-Process -Verb RunAs
+   -FilePath <exe>"` to trigger a UAC prompt and re-launches the app
+   elevated. The elevated child writes a handshake marker file at
+   startup so the parent only quits once it has evidence the new
+   process actually launched (and was not, for instance, cancelled at
+   the UAC prompt).
 
 The `AppUserModelID` is set to `com.legerycheese.sunshine-aio` early
 in `main.js` so Windows groups taskbar / toast notifications under a
