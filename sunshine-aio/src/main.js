@@ -3,6 +3,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createDefaultLogger } from './logger.js';
 import { PythonBridge } from './pythonBridge.js';
+import { isScriptPathSafe } from './scriptPathGuard.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -192,7 +193,8 @@ const getPythonBridge = () => {
     // launching an attacker-controlled file.
     if (!isScriptPathSafe(PYTHON_SCRIPT_PATH)) {
       throw new Error(
-        `Python script path '${PYTHON_SCRIPT_PATH}' resolves outside the application root (${APP_ROOT})`
+        `Python script path '${PYTHON_SCRIPT_PATH}' resolves outside the trusted script roots. ` +
+          `The script must live under <app>/src/ (dev) or <app>/.vite/build/ (Vite bundle).`
       );
     }
     pythonBridge = new PythonBridge({
@@ -213,35 +215,11 @@ const getPythonBridge = () => {
   }
 };
 
-// Application root used to enforce scriptPath is contained within the
-// install / dev directory. Resolved once at module load so the check is
-// not subject to cwd changes between calls. We use path.resolve against
-// __dirname so the root is stable regardless of process.cwd().
-const APP_ROOT = path.resolve(__dirname, '..');
-
-/**
- * Verify a scriptPath resolves inside the application root. Rejects any
- * path that escapes via `..` segments so a caller-supplied scriptPath
- * cannot point at an attacker-controlled location.
- *
- * This is a defense-in-depth check: the Sunshine AIO install flow runs
- * as admin so file-system ACLs usually protect python_bridge_server.py,
- * but the code should not depend on that. If a future story adds CLI
- * flags / env-var driven scriptPath overrides, this guard refuses them.
- */
-const isScriptPathSafe = (scriptPath) => {
-  if (typeof scriptPath !== 'string' || !scriptPath) return false;
-  const resolved = path.resolve(scriptPath);
-  const relative = path.relative(APP_ROOT, resolved);
-  // path.relative returns a string starting with '..' (or absolute) if
-  // the resolved path escapes APP_ROOT. An empty string means the path
-  // is exactly APP_ROOT, which is also not what we want (the script is
-  // inside src/, not at the root).
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return false;
-  }
-  return true;
-};
+// Application root is computed inside `scriptPathGuard.js` because the
+// production layout (Vite-bundled `.vite/build/main.js`) needs two
+// levels up from `__dirname`, not one. The guard module resolves the
+// trusted set and the script-path check so the same logic is unit-
+// testable without booting an Electron environment.
 
 /**
  * Known secret-bearing keys. Any meta / params key matching one of these
@@ -361,6 +339,24 @@ ipcMain.handle('python:execute', async (event, payload) => {
     // safety net, not the primary control.
     return { ok: false, error: `cmd "${cmd}" is not in the allowlist` };
   }
+  // Validate params is a plain JSON value BEFORE serializing. A
+  // `params` of `undefined` would otherwise fall into the try/catch
+  // below — `JSON.stringify(undefined)` returns the string 'undefined'
+  // rather than a value, which the bridge then rejects with a confusing
+  // "Failed to serialize params" error. Mirroring the preload.js guard
+  // at the IPC boundary gives a clearer message and avoids the
+  // serialize-then-reject round-trip.
+  if (params !== undefined && params !== null) {
+    if (typeof params === 'function' || typeof params === 'symbol') {
+      return { ok: false, error: 'params must be a plain JSON value (no functions or symbols)' };
+    }
+    if (typeof params === 'number' && !Number.isFinite(params)) {
+      // NaN / Infinity are not representable in JSON (they serialize to
+      // "null" silently) — reject explicitly so a buggy renderer cannot
+      // pass them through.
+      return { ok: false, error: 'params must be a finite number' };
+    }
+  }
   // Bound params size to avoid a buggy renderer pushing the main process
   // into a giant JSON serialization. 64 KiB matches the log:write cap.
   let safeParams = params;
@@ -420,16 +416,23 @@ const createWindow = () => {
     logger.info('Loading renderer index', { indexPath });
   }
 
-  // DevTools toggle shortcut (F12 or Ctrl+Shift+I) - available in both dev and prod
-  mainWindow.webContents.on('input-event', (event, input) => {
-    if (
-      input.type === 'keyDown' &&
-      (input.key === 'F12' || (input.control && input.shift && input.key === 'I'))
-    ) {
-      mainWindow.webContents.toggleDevTools();
-      event.preventDefault();
-    }
-  });
+  // DevTools toggle shortcut (F12 or Ctrl+Shift+I) — dev / debug builds only.
+  // Gated on `!app.isPackaged` so a one-keystroke DevTools toggle is not
+  // available in shipped production builds (which would otherwise expose
+  // renderer state and the typed electronAPI surface to any non-admin
+  // user). `app.isPackaged` is the official Electron discriminator:
+  // true for asar / squirrel installers, false for `electron-forge start`.
+  if (!app.isPackaged) {
+    mainWindow.webContents.on('input-event', (event, input) => {
+      if (
+        input.type === 'keyDown' &&
+        (input.key === 'F12' || (input.control && input.shift && input.key === 'I'))
+      ) {
+        mainWindow.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+    });
+  }
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('Renderer process gone', details);

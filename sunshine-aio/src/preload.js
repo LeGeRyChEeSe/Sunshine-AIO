@@ -97,9 +97,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // expose a raw channel-based invoke because that would re-introduce
   // every channel in ALLOWED_CHANNELS to the renderer.
   //
-  // pythonPing: round-trip a ping to the Python bridge.
-  //   Resolves with { ok: true, result: { result: 'pong', echo } } on success,
-  //   or { ok: false, error } if the bridge is unavailable / Python is down.
+  // pythonPing: round-trip a ping to the Python bridge. Takes no
+  //   parameters. Resolves with { ok: true, result: { result: 'pong' } }
+  //   on success, or { ok: false, error } if the bridge is unavailable
+  //   / Python is down. The result payload contains ONLY the
+  //   `result: 'pong'` field — params are intentionally not echoed
+  //   back so a future caller cannot accidentally route sensitive data
+  //   through the no-op params slot.
   pythonPing: () => ipcRenderer.invoke('python:ping'),
 
   // pythonExecute: forward a typed command to the Python bridge.

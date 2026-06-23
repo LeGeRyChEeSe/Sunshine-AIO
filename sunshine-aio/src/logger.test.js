@@ -387,7 +387,6 @@ describe('createLogger', () => {
     expect(line).toContain('INFO returned');
     await logger.flush();
   });
-
   it('exposes getLogsDir() pointing at the configured directory', async () => {
     const logger = createLogger({ logsDir: tempDir, consoleLevel: 'error' });
     expect(logger.getLogsDir()).toBe(tempDir);
@@ -455,6 +454,92 @@ describe('createLogger', () => {
     // the per-write try/catch absorbs the statSync error and the code
     // falls through to the append.
     expect(failingFsB.appendFileSync).toHaveBeenCalled();
+  });
+
+  it('recovers from a stale lock by overwriting when the recorded PID is dead', () => {
+    // Regression: the previous lock-acquisition strategy could leave
+    // a stale lock file on disk after a hard crash. The new strategy
+    // reads the recorded PID inside the lock file and overwrites it
+    // when the process is no longer alive (so a fresh instance can
+    // boot without seeing a phantom "Another instance is running"
+    // warning).
+    const lockPath = path.join(tempDir, '.sunshine-aio.lock');
+    // Pre-populate the lock file with a PID that cannot possibly be
+    // alive (PID 0 / negative). The fake fs reports it as existing.
+    const deadPid = '999999';
+    let openCalls = 0;
+    const fakeFs = {
+      existsSync: vi.fn((p) => p === lockPath || p.endsWith('.log')),
+      statSync: vi.fn(() => ({ size: 0 })),
+      appendFileSync: vi.fn(),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      rmSync: vi.fn(),
+      readFileSync: vi.fn((p) => (p === lockPath ? deadPid : '')),
+      writeFileSync: vi.fn(),
+      openSync: vi.fn(() => {
+        openCalls += 1;
+        // First call (initial 'wx' on the existing lock) throws
+        // EEXIST. Second call (after stale-PID recovery) succeeds
+        // and returns a numeric fd.
+        if (openCalls === 1) {
+          throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        }
+        return 42;
+      }),
+      writeSync: vi.fn(),
+      closeSync: vi.fn(),
+    };
+
+    createLogger({
+      logsDir: tempDir,
+      consoleLevel: 'error',
+      fs: fakeFs,
+      now: () => new Date('2026-06-23T10:00:00.000Z'),
+    });
+
+    // The stale lock must have been unlinked...
+    expect(fakeFs.unlinkSync).toHaveBeenCalledWith(lockPath);
+    // ...and the lock then re-acquired via a fresh 'wx' open.
+    expect(openCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does NOT overwrite the lock when the recorded PID is alive', () => {
+    // If the recorded PID is still alive, the lock must be left in
+    // place so the two processes do not both log to the same file.
+    // We use a PID we know is alive on every platform: the current
+    // process's own PID. process.kill(pid, 0) returns true for self.
+    const lockPath = path.join(tempDir, '.sunshine-aio.lock');
+    const livePid = String(process.pid);
+    const fakeFs = {
+      existsSync: vi.fn((p) => p === lockPath || p.endsWith('.log')),
+      statSync: vi.fn(() => ({ size: 0 })),
+      appendFileSync: vi.fn(),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      rmSync: vi.fn(),
+      readFileSync: vi.fn((p) => (p === lockPath ? livePid : '')),
+      writeFileSync: vi.fn(),
+      openSync: vi.fn(() => {
+        throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+      }),
+      writeSync: vi.fn(),
+      closeSync: vi.fn(),
+    };
+
+    createLogger({
+      logsDir: tempDir,
+      consoleLevel: 'error',
+      fs: fakeFs,
+      now: () => new Date('2026-06-23T10:00:00.000Z'),
+    });
+
+    // The lock must NOT have been unlinked because the recorded PID
+    // is the current process (which is obviously alive).
+    const unlinkCalls = fakeFs.unlinkSync.mock.calls.map((c) => c[0]);
+    expect(unlinkCalls).not.toContain(lockPath);
   });
 });
 

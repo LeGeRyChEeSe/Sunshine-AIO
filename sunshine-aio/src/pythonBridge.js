@@ -59,6 +59,20 @@ const MAX_PENDING_REQUESTS = 1000;
 // syntax (`from __future__ import annotations`, f-strings, etc.) and
 // would SyntaxError on Python 2.
 
+// Per-candidate probe timeout. A hung `--version` probe (e.g. an
+// antivirus hook on a network share) must not block bridge startup
+// indefinitely; we cap each probe at 2s so the worst-case probe time
+// is bounded. The first candidate to either resolve, exit non-zero,
+// or time out moves us to the next one.
+const PROBE_TIMEOUT_MS = 2000;
+
+// Module-level cache for the resolved Python command. The bridge
+// restart path (future reconnect logic) re-uses the cached value so we
+// do not pay the cost of up to four `--version` probes on every spawn.
+// `null` means "not resolved yet"; a string is the resolved command.
+// Tests can pass `forceReProbe: true` to bypass the cache.
+let _cachedPythonCommand = null;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -134,6 +148,15 @@ const parsePythonMajorVersion = (banner) => {
  */
 export const resolvePythonCommand = async (options = {}) => {
   const spawnFn = options.spawnFn || spawn;
+  const forceReProbe = options.forceReProbe === true;
+
+  // Honor the module-level cache. The first call probes all four
+  // candidates; subsequent calls (including future bridge restarts)
+  // reuse the resolved command directly. A test that needs to exercise
+  // the probe path again can pass `forceReProbe: true`.
+  if (!forceReProbe && _cachedPythonCommand !== null) {
+    return _cachedPythonCommand;
+  }
 
   /**
    * Probe a single (cmd, args) tuple. Returns a structured result so the
@@ -167,10 +190,27 @@ export const resolvePythonCommand = async (options = {}) => {
       });
     }
 
+    // Bound the per-candidate wait so a hung `--version` probe (e.g.
+    // antivirus hook on a network share) does not block the bridge
+    // indefinitely. The race between 'exit' and the timeout is benign
+    // — whichever resolves the promise first wins; the kill is a
+    // best-effort cleanup of the orphaned child.
+    let probeTimeout;
     const exitOk = await new Promise((resolve) => {
-      probe.once('error', () => resolve(false));
-      probe.once('exit', (code) => resolve(code === 0 || code === null));
+      let settled = false;
+      const settle = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      probe.once('error', () => settle(false));
+      probe.once('exit', (code) => settle(code === 0 || code === null));
+      probeTimeout = setTimeout(() => settle(false), PROBE_TIMEOUT_MS);
+      if (typeof probeTimeout.unref === 'function') {
+        probeTimeout.unref();
+      }
     });
+    if (probeTimeout) clearTimeout(probeTimeout);
     if (probe.exitCode === null && probe.signalCode === null) {
       try {
         probe.kill();
@@ -221,6 +261,10 @@ export const resolvePythonCommand = async (options = {}) => {
       // generic "interpreter not found".
       continue;
     }
+    // Cache the resolved command for the next bridge restart. The
+    // cache is process-wide; if a future Story ever changes Python
+    // interpreters at runtime, it can call `resolvePythonCommand({ forceReProbe: true })`.
+    _cachedPythonCommand = cmd;
     return cmd;
   }
 
@@ -449,6 +493,15 @@ export class PythonBridge extends EventEmitter {
   _markReady(payload) {
     if (this._ready) return;
     this._ready = true;
+    // Cache the ready payload so callers can pull typed fields off it
+    // (e.g. `bridge.pid`) without re-parsing the raw line. The Python
+    // server sends a `pid` field on the ready envelope; we expose it as
+    // a top-level property so future Stories have a typed access path
+    // rather than a magic-string lookup on the payload.
+    this._readyPayload = payload || null;
+    if (payload && payload.pid !== undefined && payload.pid !== null) {
+      this.pid = payload.pid;
+    }
     if (this._readyResolve) {
       const resolve = this._readyResolve;
       this._readyResolve = null;
@@ -528,12 +581,30 @@ export class PythonBridge extends EventEmitter {
       return;
     }
 
-    // Control event (no id): the server announces 'ready' once at startup.
+    // Control event (no id): the server announces 'ready' once at startup
+    // and may broadcast future control events (e.g. 'shutdown'). The
+    // set of recognized control events is a small, explicit allowlist —
+    // anything else (e.g. a future Python bug that emits
+    // `{"error": "..."}` with no id and no event) is rejected as a
+    // protocol error rather than silently dropped on the floor via the
+    // generic 'event' emit. This makes a malformed control line fail
+    // loud rather than disappearing into the renderer.
     if (parsed.id === undefined || parsed.id === null) {
-      if (parsed.event === 'ready') {
+      const event = parsed.event;
+      if (event === 'ready') {
         this._markReady(parsed);
-      } else {
+      } else if (event === 'shutdown' || event === 'event') {
         this.emit('event', parsed);
+      } else {
+        const err = new JsonProtocolError(
+          `Python bridge sent unknown control event: ${JSON.stringify(event)}`,
+          trimmed
+        );
+        this.logger.error('Unknown control event from Python bridge', {
+          rawLine: trimmed,
+          message: err.message,
+        });
+        this.emit('protocolError', err);
       }
       return;
     }
@@ -687,6 +758,13 @@ export class PythonBridge extends EventEmitter {
     this._quitting = true;
 
     const proc = this._proc;
+    // IMPORTANT: arm the SIGKILL fallback BEFORE awaiting the exit promise
+    // so it is in flight regardless of which path (real 'exit' event or
+    // safety timer) resolves the await. If we set it AFTER the await, a
+    // child that already exited cleanly would still leave the timer
+    // arming on a now-stale `proc` reference, masking any subsequent
+    // hang. Arming first also bounds the total wall-clock time of quit()
+    // to roughly `exitGraceMs` + OS delivery latency.
     const killTimer = setTimeout(() => {
       try {
         proc.kill('SIGKILL');
@@ -698,6 +776,7 @@ export class PythonBridge extends EventEmitter {
       killTimer.unref();
     }
 
+    let safety;
     try {
       if (proc.stdin && !proc.stdin.destroyed) {
         try {
@@ -723,8 +802,10 @@ export class PythonBridge extends EventEmitter {
         proc.once('exit', () => resolve());
         // Safety net in case the child never emits 'exit' (shouldn't
         // happen but...). Resolves after the SIGKILL grace period plus a
-        // small OS-delivery buffer so we don't leak the await.
-        const safety = setTimeout(resolve, this.exitGraceMs + 50);
+        // small OS-delivery buffer so we don't leak the await. The
+        // outer scope `safety` is assigned here so the finally block
+        // below can clearTimeout it after the await settles.
+        safety = setTimeout(resolve, this.exitGraceMs + 50);
         if (typeof safety.unref === 'function') {
           safety.unref();
         }
@@ -739,8 +820,24 @@ export class PythonBridge extends EventEmitter {
       }
 
       // Now wait for the exit that we registered a listener for.
-      await exitedPromise;
-      clearTimeout(killTimer);
+      try {
+        await exitedPromise;
+      } finally {
+        // Unconditional cleanup: whichever path resolved the await
+        // (real 'exit' OR safety timer), both timers must be cleared so
+        // we never leave a queued timer in the event loop. clearTimeout
+        // is a no-op on already-fired timers, so this is safe in both
+        // branches. The `try { clearTimeout(safety) }` is wrapped in its
+        // own try so an unexpected throw (e.g. `safety` was never
+        // assigned because the proc-already-null branch ran) does not
+        // mask the killTimer cleanup.
+        clearTimeout(killTimer);
+        try {
+          if (safety) clearTimeout(safety);
+        } catch {
+          /* safety was never assigned; nothing to clear */
+        }
+      }
 
       // After exit, any pending requests must be rejected — the contract
       // promises that quit() does not leave in-flight promises dangling.
@@ -751,6 +848,11 @@ export class PythonBridge extends EventEmitter {
       }
     } catch (err) {
       clearTimeout(killTimer);
+      try {
+        if (safety) clearTimeout(safety);
+      } catch {
+        /* safety was never assigned; nothing to clear */
+      }
       // Best-effort cleanup so callers don't see a leaked timer.
       if (this._pending.size > 0) {
         this._rejectAllPending(

@@ -186,12 +186,14 @@ describe('PythonBridge.send / ping', () => {
     expect(typeof envelope.id).toBe('string');
     expect(envelope.params).toEqual({});
 
-    // Simulate the Python side responding.
+    // Simulate the Python side responding. The pong payload contains
+    // ONLY the `result: 'pong'` field — the previous `echo` field has
+    // been dropped because the ping contract is parameterless.
     fake.pushStdout(
-      `${JSON.stringify({ id: envelope.id, ok: true, result: { result: 'pong', echo: {} } })}\n`
+      `${JSON.stringify({ id: envelope.id, ok: true, result: { result: 'pong' } })}\n`
     );
 
-    await expect(promise).resolves.toEqual({ result: 'pong', echo: {} });
+    await expect(promise).resolves.toEqual({ result: 'pong' });
   });
 
   it('queues requests made before the child is ready and dispatches after ready', async () => {
@@ -213,9 +215,9 @@ describe('PythonBridge.send / ping', () => {
 
     const envelope = JSON.parse(fake.stdinWrite.mock.calls[0][0]);
     fake.pushStdout(
-      `${JSON.stringify({ id: envelope.id, ok: true, result: { result: 'pong', echo: {} } })}\n`
+      `${JSON.stringify({ id: envelope.id, ok: true, result: { result: 'pong' } })}\n`
     );
-    await expect(promise).resolves.toEqual({ result: 'pong', echo: {} });
+    await expect(promise).resolves.toEqual({ result: 'pong' });
   });
 
   it('rejects when Python returns a non-ok response', async () => {
@@ -416,6 +418,44 @@ describe('PythonBridge malformed JSON handling', () => {
     expect(warnCalls.some((m) => m.includes('unknown request'))).toBe(true);
   });
 
+  it('rejects unknown control events as a protocol error', async () => {
+    // A control line (no id, no recognized event) must be rejected as
+    // a JsonProtocolError rather than silently dropped via the generic
+    // 'event' emit. This locks in the strengthened control-line
+    // handling so a future Python bug that emits `{"error": "..."}`
+    // with no id and no event is surfaced as a real error.
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+    const errs = [];
+    bridge.on('protocolError', (e) => errs.push(e));
+
+    // A control line with a known event (e.g. 'shutdown') goes to the
+    // generic 'event' emit. A control line with an unknown event
+    // (e.g. a stray {"foo": 1}) must be a protocol error.
+    fake.pushStdout(`${JSON.stringify({ event: 'shutdown' })}\n`);
+    fake.pushStdout(`${JSON.stringify({ foo: 1 })}\n`);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(errs.length).toBe(1);
+    expect(errs[0]).toBeInstanceOf(JsonProtocolError);
+    expect(errs[0].message).toMatch(/unknown control event/);
+  });
+
+  it('exposes the ready pid as a typed property', async () => {
+    // The Python side's ready envelope includes a `pid` field; the
+    // bridge now exposes it as `bridge.pid` so future Stories have a
+    // typed access path rather than a magic-string lookup on the
+    // ready payload.
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake, { pid: 98765 });
+    await expect(bridge.whenReady()).resolves.toMatchObject({ pid: 98765 });
+    expect(bridge.pid).toBe(98765);
+  });
+
   it('kills the child when stdout buffer exceeds the cap', async () => {
     // DoS guard: a misbehaving / compromised Python child that emits N
     // bytes without a newline must not be allowed to grow _stdoutBuffer
@@ -455,20 +495,17 @@ describe('PythonBridge concurrent requests', () => {
     const lines = fake.stdinWrite.mock.calls.map((c) => c[0]);
     expect(lines).toHaveLength(N);
     const ids = lines.map((l) => JSON.parse(l.trim()).id);
-    const echoedParams = lines.map((l) => JSON.parse(l.trim()).params);
 
     // Answer in REVERSE order to prove there is no FIFO assumption on
     // the response side.
     for (let i = ids.length - 1; i >= 0; i -= 1) {
-      fake.pushStdout(
-        `${JSON.stringify({ id: ids[i], ok: true, result: { result: 'pong', echo: echoedParams[i] } })}\n`
-      );
+      fake.pushStdout(`${JSON.stringify({ id: ids[i], ok: true, result: { result: 'pong' } })}\n`);
     }
 
     const results = await Promise.all(promises);
     expect(results).toHaveLength(N);
-    results.forEach((res, i) => {
-      expect(res).toEqual({ result: 'pong', echo: { i } });
+    results.forEach((res) => {
+      expect(res).toEqual({ result: 'pong' });
     });
   });
 
@@ -483,11 +520,9 @@ describe('PythonBridge concurrent requests', () => {
     await new Promise((resolve) => setImmediate(resolve));
     const ids = fake.stdinWrite.mock.calls.map((c) => JSON.parse(c[0].trim()).id);
     // Answer only the fast one.
-    fake.pushStdout(
-      `${JSON.stringify({ id: ids[1], ok: true, result: { result: 'pong', echo: {} } })}\n`
-    );
+    fake.pushStdout(`${JSON.stringify({ id: ids[1], ok: true, result: { result: 'pong' } })}\n`);
     await expect(slow).rejects.toBeInstanceOf(TimeoutError);
-    await expect(fast).resolves.toEqual({ result: 'pong', echo: {} });
+    await expect(fast).resolves.toEqual({ result: 'pong' });
   });
 
   it('refuses new requests once _pending exceeds the cap', async () => {
@@ -603,7 +638,7 @@ describe('resolvePythonCommand', () => {
       }
       throw new Error('ENOENT');
     });
-    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
     expect(cmd).toBe('py');
     expect(calls).toContain('py -3 --version');
   });
@@ -612,7 +647,7 @@ describe('resolvePythonCommand', () => {
     const spawnSpy = vi.fn(() => {
       throw new Error('ENOENT');
     });
-    await expect(resolvePythonCommand({ spawnFn: spawnSpy })).rejects.toThrow(
+    await expect(resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true })).rejects.toThrow(
       /Python 3 is required/
     );
   });
@@ -631,7 +666,7 @@ describe('resolvePythonCommand', () => {
       }
       throw new Error('ENOENT');
     });
-    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
     expect(cmd).toBe('python');
   });
 
@@ -648,7 +683,7 @@ describe('resolvePythonCommand', () => {
       }
       throw new Error('ENOENT');
     });
-    await expect(resolvePythonCommand({ spawnFn: spawnSpy })).rejects.toThrow(
+    await expect(resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true })).rejects.toThrow(
       /Python 3 is required/
     );
   });
@@ -662,7 +697,7 @@ describe('resolvePythonCommand', () => {
       }
       throw new Error('ENOENT');
     });
-    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
     expect(cmd).toBe('py');
   });
 
@@ -690,7 +725,7 @@ describe('resolvePythonCommand', () => {
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
-      const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+      const cmd = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
       expect(cmd).toBe('python3');
       expect(calls).toEqual([
         'py -3 --version',
@@ -716,7 +751,41 @@ describe('resolvePythonCommand', () => {
       }
       throw new Error('ENOENT');
     });
-    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
     expect(cmd).toBe('py');
+  });
+
+  it('caches the resolved command across calls (forceReProbe off by default)', async () => {
+    // First call resolves a Python 3 banner. Second call with the same
+    // (and even failing) spawn function should return the cached value
+    // without probing again.
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('Python 3.11.2');
+      }
+      throw new Error('ENOENT');
+    });
+    const first = await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
+    expect(first).toBe('py');
+    const callsAfterFirst = spawnSpy.mock.calls.length;
+
+    // Subsequent call without forceReProbe should use the cache and
+    // never invoke spawnSpy again.
+    const second = await resolvePythonCommand({ spawnFn: spawnSpy });
+    expect(second).toBe(first);
+    expect(spawnSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('honors forceReProbe to bypass the cache', async () => {
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('Python 3.11.2');
+      }
+      throw new Error('ENOENT');
+    });
+    await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
+    const baseline = spawnSpy.mock.calls.length;
+    await resolvePythonCommand({ spawnFn: spawnSpy, forceReProbe: true });
+    expect(spawnSpy.mock.calls.length).toBeGreaterThan(baseline);
   });
 });

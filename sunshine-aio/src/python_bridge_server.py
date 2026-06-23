@@ -29,9 +29,15 @@ from typing import Any, Dict
 
 
 def _build_pong(params: Any) -> Dict[str, Any]:
-    """Return the pong payload. Echoes params back so the renderer can
-    verify the round-trip preserves its arguments."""
-    return {"result": "pong", "echo": params}
+    """Return the pong payload. Intentionally does NOT echo params: the
+    ping command is parameterless by contract, and the round-trip
+    identity is verified by matching the request id (the bridge matches
+    responses to requests by id, not by payload). Echoing params was
+    useful as a smoke-test scaffold but would leak arbitrary renderer
+    arguments into log lines and the future electronAPI surface if a
+    caller ever passed sensitive data through the no-op params slot.
+    The payload shape is therefore fixed to ``{"result": "pong"}``."""
+    return {"result": "pong"}
 
 
 # Command dispatch table. Adding a new command means adding an entry here

@@ -293,36 +293,121 @@ export const createLogger = ({
   ensureLogsDir(logsDir, injectedFs);
 
   // Detect concurrent Sunshine AIO instances. Two processes writing to the
-  // same log file can interleave bytes and corrupt rotation. We try to
-  // create a lock file with the 'wx' flag (fail if exists); if it already
-  // exists we log a one-shot warning and continue (best-effort, not a hard
-  // block — a stale lock from a crashed process would otherwise prevent
-  // logging entirely). The lock file is best-effort and is intentionally
-  // NOT deleted on process exit because Windows file-locking semantics make
-  // the lock useful for the lifetime of the process.
+  // same log file can interleave bytes and corrupt rotation.
+  //
+  // Acquisition strategy: we try to create a lock file with the 'wx'
+  // flag (fail if exists) containing the current PID. If the file
+  // already exists we read the recorded PID and check whether that
+  // process is still alive via `process.kill(pid, 0)` (the standard
+  // "is this PID alive?" probe — it throws ESRCH if not). If the
+  // recorded PID is dead we treat the lock as stale and overwrite it.
+  // If the PID is still alive (or we cannot read the lock at all) we
+  // log a one-shot warning and continue (best-effort, not a hard
+  // block). This avoids the previous bug where a process that died
+  // suddenly (and whose open fd had not been released) would leave a
+  // lock that a fresh instance could not take, even after the
+  // original process was gone.
   const lockPath = path.join(logsDir, '.sunshine-aio.lock');
   let concurrentInstanceWarned = false;
-  try {
-    if (typeof injectedFs.openSync === 'function') {
-      const fd = injectedFs.openSync(lockPath, 'wx');
-      try {
-        if (typeof fd === 'number' && typeof injectedFs.writeSync === 'function') {
-          injectedFs.writeSync(fd, String(process.pid));
+  let lockOwned = false;
+
+  // Returns true if the recorded PID inside the lock file is still a
+  // live process on this machine. Returns false if the PID is missing,
+  // unparseable, or signals ESRCH (no such process). Any other error
+  // is treated as "unknown" (returns false) so we do not falsely trust
+  // a stale entry.
+  const isPidAlive = (pid) => {
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      if (err && err.code === 'ESRCH') return false;
+      return false;
+    }
+  };
+
+  const readLockPid = () => {
+    try {
+      if (typeof injectedFs.readFileSync !== 'function') return null;
+      const raw = injectedFs.readFileSync(lockPath, 'utf8');
+      const n = Number.parseInt(String(raw).trim(), 10);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const tryAcquireLock = () => {
+    if (typeof injectedFs.openSync !== 'function') return;
+    let fd;
+    try {
+      fd = injectedFs.openSync(lockPath, 'wx');
+    } catch (err) {
+      if (!err || (err.code !== 'EEXIST' && err.code !== 'EACCES' && err.code !== 'EBUSY')) {
+        return;
+      }
+      // Lock already exists. Try the stale-PID path: read the recorded
+      // PID and overwrite if the process is gone. On Windows an open
+      // file handle can keep 'wx' failing even after the owning process
+      // exited; the PID liveness check turns that into a recoverable
+      // condition rather than a permanent "Another instance is running"
+      // mis-fire.
+      const recordedPid = readLockPid();
+      if (recordedPid !== null && !isPidAlive(recordedPid)) {
+        try {
+          injectedFs.unlinkSync(lockPath);
+        } catch {
+          // Best effort — fall through to the existing-lock warning.
+          concurrentInstanceWarned = true;
+          return;
         }
-      } finally {
-        if (typeof fd === 'number' && typeof injectedFs.closeSync === 'function') {
-          try {
-            injectedFs.closeSync(fd);
-          } catch {
-            // ignore
-          }
+        try {
+          fd = injectedFs.openSync(lockPath, 'wx');
+        } catch {
+          concurrentInstanceWarned = true;
+          return;
+        }
+      } else {
+        concurrentInstanceWarned = true;
+        return;
+      }
+    }
+    try {
+      if (typeof fd === 'number' && typeof injectedFs.writeSync === 'function') {
+        injectedFs.writeSync(fd, String(process.pid));
+      }
+    } finally {
+      if (typeof fd === 'number' && typeof injectedFs.closeSync === 'function') {
+        try {
+          injectedFs.closeSync(fd);
+        } catch {
+          // ignore
         }
       }
     }
-  } catch (err) {
-    if (err && (err.code === 'EEXIST' || err.code === 'EACCES' || err.code === 'EBUSY')) {
-      concurrentInstanceWarned = true;
-    }
+    lockOwned = true;
+  };
+
+  tryAcquireLock();
+
+  // Best-effort cleanup: remove the lock on graceful exit so a
+  // subsequent launch does not have to walk the stale-PID path. We
+  // deliberately do not register this on SIGKILL or uncaught
+  // exceptions (those are not graceful), and we swallow any error
+  // because the worst case is a stale lock that the next launch will
+  // transparently recover from via the stale-PID check above.
+  if (lockOwned) {
+    const cleanup = () => {
+      try {
+        if (typeof injectedFs.unlinkSync === 'function') {
+          injectedFs.unlinkSync(lockPath);
+        }
+      } catch {
+        /* best effort */
+      }
+    };
+    process.once('exit', cleanup);
   }
 
   let pendingWrites = Promise.resolve();
