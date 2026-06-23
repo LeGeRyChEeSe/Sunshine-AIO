@@ -42,7 +42,6 @@ const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC methods for Story 1.3 (Python backend integration)
-  // TODO: Add actual channel names to ALLOWED_CHANNELS when implementing IPC
   invoke: (channel, ...args) => {
     if (!isChannelAllowed(channel)) {
       console.warn(`[PRELOAD] Blocked attempt to invoke non-whitelisted channel: ${channel}`);

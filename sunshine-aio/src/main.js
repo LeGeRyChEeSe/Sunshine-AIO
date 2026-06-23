@@ -183,6 +183,53 @@ const isPythonRateLimited = (senderId) => {
   return state.count > MAX_PYTHON_MESSAGES_PER_SECOND;
 };
 
+// Per-sender rate limit on admin:request-elevation.
+//
+// Elevation requests spawn a `cmd.exe` process and (once the runas
+// bug is fixed) surface a UAC prompt to the user. Without this
+// limit, a compromised renderer (XSS, malicious dependency) can
+// call the IPC in a tight loop and either:
+//   - spawn thousands of cmd.exe processes, exhausting handles /
+//     memory; or
+//   - repeatedly flash UAC prompts at the user, training them to
+//     click "Yes" reflexively (UX-driven social-engineering).
+//
+// The cap mirrors the log:write / python:execute shape: at most
+// one elevation request per 2 seconds, with a hard ceiling of 3
+// per minute. Anything beyond that is dropped with a rate-limited
+// response so the renderer can back off without silently failing.
+const MIN_ELEVATION_INTERVAL_MS = 2000; // 1 request / 2s
+const MAX_ELEVATION_REQUESTS_PER_MINUTE = 3;
+const elevationRateState = new Map(); // senderId -> { lastCallAt, windowStart, countInWindow }
+
+const isAdminElevationRateLimited = (senderId) => {
+  const now = Date.now();
+  const state = elevationRateState.get(senderId) || {
+    lastCallAt: 0,
+    windowStart: now,
+    countInWindow: 0,
+  };
+  // Hard ceiling: no more than N requests in any rolling 60s window.
+  if (now - state.windowStart >= 60_000) {
+    state.windowStart = now;
+    state.countInWindow = 0;
+  }
+  state.countInWindow += 1;
+  if (state.countInWindow > MAX_ELEVATION_REQUESTS_PER_MINUTE) {
+    elevationRateState.set(senderId, state);
+    return true;
+  }
+  // Minimum spacing: even within the per-minute budget, require
+  // 2s between requests so a tight loop cannot burst them.
+  if (now - state.lastCallAt < MIN_ELEVATION_INTERVAL_MS) {
+    elevationRateState.set(senderId, state);
+    return true;
+  }
+  state.lastCallAt = now;
+  elevationRateState.set(senderId, state);
+  return false;
+};
+
 ipcMain.handle('log:write', (event, payload) => {
   if (!payload || typeof payload !== 'object') {
     logger.warn('Renderer sent invalid log payload');
@@ -224,6 +271,20 @@ ipcMain.handle('log:write', (event, payload) => {
 
 let pythonBridge = null;
 let pythonBridgeInitPromise = null;
+
+// One-shot quit flag. Set by the close handler / tray onQuit /
+// before-quit so any subsequent close events know this is a real
+// shutdown and must NOT be swallowed by the minimize-to-tray hook.
+// Without this, app.quit() emits a close on every BrowserWindow and
+// our handler would re-hide the window, blocking the quit forever.
+let _isQuitting = false;
+
+/**
+ * Returns the current quit flag. Exposed for tests and for the
+ * preload side to be able to read the state without touching the
+ * internal variable directly.
+ */
+export const isAppQuitting = () => _isQuitting;
 
 // Default script path is resolved from the application root, not from
 // process.cwd(), so the bridge works regardless of where Electron was
@@ -554,7 +615,21 @@ const waitForElevationMarker = (markerPath, timeoutMs) => {
   });
 };
 
-ipcMain.handle('admin:request-elevation', async () => {
+ipcMain.handle('admin:request-elevation', async (event) => {
+  // Rate-limit per sender so a compromised renderer cannot prompt-
+  // spam the user with UAC dialogs or spawn cmd.exe in a tight
+  // loop. The cap mirrors the log:write / python:execute shape.
+  const senderId = event && event.sender ? event.sender.id : 'unknown';
+  if (isAdminElevationRateLimited(senderId)) {
+    return { ok: false, reason: 'rate limited' };
+  }
+  // Bust the cached elevation result before probing. The cache is
+  // populated once on first call and was previously never invalidated
+  // here, so a process that elevates itself between calls would
+  // continue to report `false` and the renderer would offer a
+  // redundant UAC prompt. `forceFresh: true` re-probes via whoami,
+  // so the renderer sees the current ground truth.
+  _resetIsElevatedCache();
   if (isRunningAsAdmin({ forceFresh: true })) {
     return { ok: true, alreadyElevated: true };
   }
@@ -723,7 +798,17 @@ const createWindow = () => {
   // window-all-closed fires. We also re-check the *current* settings
   // value at close time rather than capturing it once, so a toggle
   // made via the settings UI takes effect immediately.
+  //
+  // CRITICAL: a real shutdown (tray "Quit", taskbar close when
+  // minimize-to-tray is OFF, before-quit teardown) sets the global
+  // `_isQuitting` flag BEFORE calling `app.quit()`. `app.quit()` then
+  // emits `close` on every BrowserWindow as part of teardown; without
+  // the `!_isQuitting` guard, this handler would preventDefault and
+  // re-hide the window, leaving `app.quit()` blocked forever
+  // ("ghost quit"). The guard guarantees a real quit can always
+  // proceed.
   mainWindow.on('close', (event) => {
+    if (_isQuitting) return;
     const minimizeEnabled =
       settings && typeof settings.minimizeToTray === 'boolean' ? settings.minimizeToTray : false;
     if (!minimizeEnabled) return;
@@ -773,6 +858,21 @@ app.whenReady().then(() => {
       getMainWindow: () => _mainWindow,
       logger,
       onQuit: () => {
+        // Mark the process as quitting so the close handler does
+        // NOT re-hide the window when app.quit() emits its teardown
+        // close events. Explicitly destroy the window first so a
+        // hidden window does not leave a residual taskbar entry on
+        // some Windows builds during the (async) cleanup window.
+        _isQuitting = true;
+        try {
+          if (_mainWindow && !_mainWindow.isDestroyed()) {
+            _mainWindow.destroy();
+          }
+        } catch (err) {
+          logger.warn('Failed to destroy window during tray quit', {
+            message: err && err.message ? err.message : String(err),
+          });
+        }
         // Quit must skip the "is the bridge still alive?" guard so
         // we actually exit even if the bridge is mid-call. Setting
         // a one-shot flag on the bridge is the simplest path.
@@ -791,6 +891,18 @@ app.whenReady().then(() => {
 // alive (the window was hidden, not destroyed). The `windows-all-
 // closed` event still fires because hide() makes the window count
 // drop to zero on Windows.
+//
+// The single-condition gate replaces an earlier form that branched
+// separately on minimize-to-tray and platform; that form had two
+// problems:
+//   1. On non-Windows, minimize-to-tray was effectively always OFF
+//      because the `&&` short-circuited, even when the user had
+//      enabled it — confusing for any future macOS / Linux port.
+//   2. Quitting from the tray when the window was hidden did not
+//      explicitly destroy the hidden window, so on some Windows
+//      builds a residual taskbar entry briefly appeared. The tray
+//      onQuit handler now sets `_isQuitting` and destroys the
+//      window explicitly before calling `app.quit()`.
 app.on('window-all-closed', () => {
   const minimizeEnabled =
     settings && typeof settings.minimizeToTray === 'boolean' ? settings.minimizeToTray : false;
@@ -807,18 +919,31 @@ app.on('window-all-closed', () => {
 // BEFORE 'will-quit' and before any windows are torn down. We do an
 // async quit() and let the 'will-quit' handler below serialize the
 // actual exit so the logger flushes after.
+//
+// Ordering note: the tray icon is disposed at the END of the
+// cleanup chain, NOT at the top of this handler. If we destroy the
+// tray up front and then `pythonBridge.quit()` hangs (or throws),
+// the user is left with a process that has no tray icon AND no
+// window — they cannot see or interact with the app, but the
+// process refuses to exit because `will-quit` is also awaiting
+// `logger.flush()`. Deferring the dispose keeps the tray alive as
+// a retry surface for the duration of the cleanup.
 app.on('before-quit', (event) => {
-  // Always dispose of the tray icon first so Windows does not show a
-  // ghost icon after the process exits. disposeTrayManager is
-  // idempotent and safe to call even when no tray was created.
-  try {
-    disposeTrayManager();
-  } catch (err) {
-    logger.warn('Failed to dispose tray manager', {
-      message: err && err.message ? err.message : String(err),
-    });
+  // Mark the global quit flag so the window close handler stops
+  // swallowing real shutdown close events.
+  _isQuitting = true;
+  if (!pythonBridge) {
+    // No bridge to drain; dispose the tray now and re-issue quit
+    // so the will-quit flush path still runs.
+    try {
+      disposeTrayManager();
+    } catch (err) {
+      logger.warn('Failed to dispose tray manager', {
+        message: err && err.message ? err.message : String(err),
+      });
+    }
+    return;
   }
-  if (!pythonBridge) return;
   if (pythonBridge.isQuitting && pythonBridge.isQuitting()) return;
   logger.info('App before-quit, terminating Python bridge');
   event.preventDefault();
@@ -830,6 +955,18 @@ app.on('before-quit', (event) => {
       });
     })
     .finally(() => {
+      // The bridge has either drained or given up. We are now
+      // committed to exiting. Dispose the tray icon so Windows
+      // does not show a ghost icon after the process is gone.
+      // disposeTrayManager is idempotent and safe to call even
+      // when no tray was created.
+      try {
+        disposeTrayManager();
+      } catch (err) {
+        logger.warn('Failed to dispose tray manager', {
+          message: err && err.message ? err.message : String(err),
+        });
+      }
       // Defer to the normal quit path so the logger flushes.
       app.quit();
     });
@@ -850,6 +987,10 @@ app.on('will-quit', (event) => {
       } catch {}
     })
     .finally(() => {
+      // The tray icon is already gone by the time we get here
+      // (before-quit's .finally() disposes it just before re-issuing
+      // app.quit()). app.exit() skips the remaining lifecycle events
+      // so the (already-prevented) close path cannot re-enter.
       app.exit(0);
     });
 });
