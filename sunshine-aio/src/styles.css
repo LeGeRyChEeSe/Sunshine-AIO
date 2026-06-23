@@ -1,0 +1,176 @@
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #1a1a2e;
+  color: #eee;
+  min-height: 100vh;
+}
+
+#app {
+  padding: 20px;
+}
+
+h1 {
+  color: #e94560;
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+p {
+  color: #a0a0a0;
+  font-size: 1.1rem;
+}
+
+/* Error toast — shown by renderer.js when an unhandled error occurs.
+   The toast sits in the bottom-right corner, fades in/out, and is
+   dismissable by clicking on it. */
+.saio-error-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  max-width: 360px;
+  padding: 14px 18px;
+  background-color: #4a1f25;
+  color: #ffe6e9;
+  border-left: 4px solid #e94560;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+  z-index: 9999;
+}
+
+.saio-error-toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Python backend status (Story 1.3). The text colour mirrors the
+   connection state so a user can see at a glance whether the IPC
+   bridge is healthy, in flight, or failed. */
+.saio-python-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition:
+    color 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+.saio-python-status--pending {
+  color: #d2b14b;
+  background-color: rgba(210, 177, 75, 0.12);
+}
+
+.saio-python-status--ok {
+  color: #5fd07d;
+  background-color: rgba(95, 208, 125, 0.12);
+}
+
+.saio-python-status--error {
+  color: #ff8b94;
+  background-color: rgba(255, 139, 148, 0.12);
+}
+
+/* Settings panel (Story 1.4). A short, plain-JS-controlled form for
+   the minimize-to-tray preference and the admin elevation button.
+   Visual style mirrors the Python-status pill so the panel does not
+   feel bolted-on. */
+.saio-settings {
+  margin-top: 24px;
+  padding: 16px 20px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  max-width: 640px;
+}
+
+.saio-settings h2 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 1.3rem;
+  color: #e94560;
+}
+
+.saio-settings h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  color: #eee;
+}
+
+.saio-setting-row {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.saio-setting-row:first-of-type {
+  border-top: none;
+}
+
+.saio-setting-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.saio-setting-row input[type='checkbox'] {
+  accent-color: #e94560;
+  width: 18px;
+  height: 18px;
+}
+
+.saio-setting-status {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: #a0a0a0;
+}
+
+.saio-setting-status[data-kind='ok'] {
+  color: #5fd07d;
+}
+
+.saio-setting-status[data-kind='warn'] {
+  color: #d2b14b;
+}
+
+.saio-setting-status[data-kind='error'] {
+  color: #ff8b94;
+}
+
+.saio-setting-status[data-kind='pending'] {
+  color: #d2b14b;
+}
+
+.saio-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background-color: #e94560;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+}
+
+.saio-btn:hover:not(:disabled) {
+  background-color: #ff5a73;
+}
+
+.saio-btn:disabled {
+  background-color: rgba(233, 69, 96, 0.35);
+  cursor: not-allowed;
+}

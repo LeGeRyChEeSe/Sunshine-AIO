@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';" />
+    <title>Sunshine AIO</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Sunshine AIO</h1>
+      <p>Game streaming components installer</p>
+      <p>
+        Python backend:
+        <span id="python-status" class="saio-python-status saio-python-status--pending" data-status="pending">
+          Initializing…
+        </span>
+      </p>
+
+      <section class="saio-settings" aria-labelledby="settings-heading">
+        <h2 id="settings-heading">Settings</h2>
+
+        <div class="saio-setting-row">
+          <label for="minimize-to-tray-toggle">
+            <input type="checkbox" id="minimize-to-tray-toggle" />
+            Minimize to system tray when I close the window
+          </label>
+          <p
+            id="minimize-to-tray-status"
+            class="saio-setting-status"
+            data-kind="info"
+          >
+            Loading…
+          </p>
+        </div>
+
+        <div class="saio-setting-row">
+          <h3>Administrator privileges</h3>
+          <p
+            id="admin-status"
+            class="saio-setting-status"
+            data-kind="info"
+          >
+            Checking…
+          </p>
+          <button
+            type="button"
+            id="admin-elevate-btn"
+            class="saio-btn"
+            disabled
+          >
+            Restart as administrator
+          </button>
+        </div>
+
+        <div class="saio-setting-row">
+          <h3>Windows notifications</h3>
+          <p
+            id="notify-test-status"
+            class="saio-setting-status"
+            data-kind="info"
+          >
+            Click the button to verify the OS notification pipeline.
+          </p>
+          <button
+            type="button"
+            id="notify-test-btn"
+            class="saio-btn"
+          >
+            Test notification
+          </button>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="/src/renderer.js"></script>
+  </body>
+</html>
