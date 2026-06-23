@@ -79,6 +79,13 @@ const MAX_LOG_META_DEPTH = 5;
 const MAX_LOG_MESSAGES_PER_SECOND = 100;
 const logRateState = new Map(); // senderId -> { count, windowStart }
 
+// Per-sender rate limit on python:execute / python:ping. Mirrors the
+// log:write cap. Without this, a compromised renderer or buggy JS loop
+// could fire thousands of IPC calls per second, each allocating a
+// pending entry + timer in the bridge and exhausting memory.
+const MAX_PYTHON_MESSAGES_PER_SECOND = 100;
+const pythonRateState = new Map(); // senderId -> { count, windowStart }
+
 const isPayloadTooLarge = (payload) => {
   try {
     return Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_LOG_PAYLOAD_BYTES;
@@ -110,6 +117,18 @@ const isRateLimited = (senderId) => {
   return state.count > MAX_LOG_MESSAGES_PER_SECOND;
 };
 
+const isPythonRateLimited = (senderId) => {
+  const now = Date.now();
+  const state = pythonRateState.get(senderId) || { count: 0, windowStart: now };
+  if (now - state.windowStart >= 1000) {
+    state.count = 0;
+    state.windowStart = now;
+  }
+  state.count += 1;
+  pythonRateState.set(senderId, state);
+  return state.count > MAX_PYTHON_MESSAGES_PER_SECOND;
+};
+
 ipcMain.handle('log:write', (event, payload) => {
   if (!payload || typeof payload !== 'object') {
     logger.warn('Renderer sent invalid log payload');
@@ -129,7 +148,12 @@ ipcMain.handle('log:write', (event, payload) => {
     return { ok: false, reason: 'rate limited' };
   }
   const safeLevel = ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info';
-  logger[safeLevel](`[renderer] ${typeof message === 'string' ? message : ''}`, meta);
+  // Redact secret-looking keys / values from meta before they hit the
+  // file logger. The renderer could pass credentials via electronAPI.log
+  // (intentionally or via a bug); without this pass those end up
+  // unredacted in logs/sunshine-aio-*.log on disk.
+  const safeMeta = meta === undefined || meta === null ? meta : redactSecrets(meta);
+  logger[safeLevel](`[renderer] ${typeof message === 'string' ? message : ''}`, safeMeta);
   return { ok: true };
 });
 
@@ -147,6 +171,12 @@ ipcMain.handle('log:write', (event, payload) => {
 let pythonBridge = null;
 let pythonBridgeInitPromise = null;
 
+// Default script path is resolved from the application root, not from
+// process.cwd(), so the bridge works regardless of where Electron was
+// launched. The bridge constructor uses the same default, but we resolve
+// it here too so the path-safety check (below) compares apples to apples.
+const PYTHON_SCRIPT_PATH = path.resolve(__dirname, 'python_bridge_server.py');
+
 /**
  * Lazily create the Python bridge. Subsequent calls return the same
  * instance. The first call kicks off the spawn; concurrent calls await
@@ -156,7 +186,19 @@ const getPythonBridge = () => {
   if (pythonBridge) return pythonBridge;
   if (pythonBridgeInitPromise) return pythonBridgeInitPromise;
   try {
-    pythonBridge = new PythonBridge({ logger });
+    // Path-traversal guard: refuse to spawn a Python script from outside
+    // the application root. Without this, a future story that exposes
+    // scriptPath via CLI flags / env vars could be tricked into
+    // launching an attacker-controlled file.
+    if (!isScriptPathSafe(PYTHON_SCRIPT_PATH)) {
+      throw new Error(
+        `Python script path '${PYTHON_SCRIPT_PATH}' resolves outside the application root (${APP_ROOT})`
+      );
+    }
+    pythonBridge = new PythonBridge({
+      logger,
+      scriptPath: PYTHON_SCRIPT_PATH,
+    });
     pythonBridgeInitPromise = pythonBridge.whenReady();
     // Once init settles, drop the promise but keep the instance. If init
     // rejects, we leave pythonBridge in place so the next call retries
@@ -171,9 +213,117 @@ const getPythonBridge = () => {
   }
 };
 
+// Application root used to enforce scriptPath is contained within the
+// install / dev directory. Resolved once at module load so the check is
+// not subject to cwd changes between calls. We use path.resolve against
+// __dirname so the root is stable regardless of process.cwd().
+const APP_ROOT = path.resolve(__dirname, '..');
+
+/**
+ * Verify a scriptPath resolves inside the application root. Rejects any
+ * path that escapes via `..` segments so a caller-supplied scriptPath
+ * cannot point at an attacker-controlled location.
+ *
+ * This is a defense-in-depth check: the Sunshine AIO install flow runs
+ * as admin so file-system ACLs usually protect python_bridge_server.py,
+ * but the code should not depend on that. If a future story adds CLI
+ * flags / env-var driven scriptPath overrides, this guard refuses them.
+ */
+const isScriptPathSafe = (scriptPath) => {
+  if (typeof scriptPath !== 'string' || !scriptPath) return false;
+  const resolved = path.resolve(scriptPath);
+  const relative = path.relative(APP_ROOT, resolved);
+  // path.relative returns a string starting with '..' (or absolute) if
+  // the resolved path escapes APP_ROOT. An empty string means the path
+  // is exactly APP_ROOT, which is also not what we want (the script is
+  // inside src/, not at the root).
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return false;
+  }
+  return true;
+};
+
+/**
+ * Known secret-bearing keys. Any meta / params key matching one of these
+ * is redacted before being written to the file logger. Keys are matched
+ * case-insensitively because secrets / passwords are commonly
+ * mis-capitalized by accident.
+ */
+const SECRET_KEYS = new Set([
+  'password',
+  'passwd',
+  'pwd',
+  'token',
+  'secret',
+  'apikey',
+  'api_key',
+  'authorization',
+  'auth',
+  'cookie',
+  'session',
+  'sessionid',
+  'session_id',
+  'privatekey',
+  'private_key',
+  'access_token',
+  'refresh_token',
+]);
+
+const isSecretKey = (key) => {
+  if (typeof key !== 'string') return false;
+  return SECRET_KEYS.has(key.toLowerCase());
+};
+
+/**
+ * Recursively redact secret-looking keys and string values that match
+ * common credential patterns (JWT, long base64 blobs, bearer tokens).
+ * The original object is NOT mutated; a redacted shallow copy is
+ * returned. Arrays are walked. Functions / symbols / undefined are
+ * preserved as their safeStringify equivalents.
+ *
+ * Depth is capped to prevent a malicious caller from constructing a
+ * payload that pins the CPU for arbitrarily long.
+ */
+const REDACT_MAX_DEPTH = 8;
+const redactSecrets = (value, depth = 0) => {
+  if (depth > REDACT_MAX_DEPTH) return '[redacted: too deep]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    // Common credential patterns: bearer tokens, JWTs, long random hex.
+    if (/^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./.test(value)) {
+      return '[redacted]';
+    }
+    if (/^Bearer\s+/i.test(value)) {
+      return '[redacted]';
+    }
+    return value;
+  }
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSecrets(item, depth + 1));
+  }
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (isSecretKey(key)) {
+      out[key] = '[redacted]';
+    } else {
+      try {
+        out[key] = redactSecrets(value[key], depth + 1);
+      } catch {
+        out[key] = '[unserializable]';
+      }
+    }
+  }
+  return out;
+};
+
 // 'python:ping' — AC2 of Story 1.3: round-trip a ping to the Python
 // backend and return the pong to the renderer.
-ipcMain.handle('python:ping', async () => {
+ipcMain.handle('python:ping', async (event) => {
+  const senderId = event && event.sender ? event.sender.id : 'unknown';
+  if (isPythonRateLimited(senderId)) {
+    return { ok: false, error: 'rate limited' };
+  }
   try {
     const bridge = await getPythonBridge();
     const result = await bridge.ping();
@@ -192,7 +342,11 @@ ipcMain.handle('python:ping', async () => {
 // must not be able to widen the IPC surface on its own.
 const ALLOWED_PYTHON_CMDS = new Set(['ping']);
 
-ipcMain.handle('python:execute', async (_event, payload) => {
+ipcMain.handle('python:execute', async (event, payload) => {
+  const senderId = event && event.sender ? event.sender.id : 'unknown';
+  if (isPythonRateLimited(senderId)) {
+    return { ok: false, error: 'rate limited' };
+  }
   if (!payload || typeof payload !== 'object') {
     return { ok: false, error: 'payload must be an object with cmd and optional params' };
   }
@@ -316,8 +470,7 @@ app.on('window-all-closed', () => {
 // flushes after.
 app.on('before-quit', (event) => {
   if (!pythonBridge) return;
-  if (pythonBridge._quitting) return;
-  pythonBridge._quitting = true;
+  if (pythonBridge.isQuitting && pythonBridge.isQuitting()) return;
   logger.info('App before-quit, terminating Python bridge');
   event.preventDefault();
   pythonBridge

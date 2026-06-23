@@ -40,6 +40,17 @@ import { createDefaultLogger } from './logger.js';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_EXIT_GRACE_MS = 2_000;
 const DEFAULT_READY_TIMEOUT_MS = 5_000;
+// Maximum size of the stdout line buffer. A misbehaving/compromised
+// Python child that emits N bytes without a newline could otherwise
+// grow _stdoutBuffer without bound until V8 OOMs. 1 MiB is comfortably
+// larger than any legitimate single JSON response (a 64 KiB params
+// envelope maxes out around 70 KiB serialized) while still being
+// bounded enough to keep us safe.
+const MAX_STDOUT_BUFFER_BYTES = 1 * 1024 * 1024;
+// Hard cap on the number of concurrent in-flight requests. A
+// compromised renderer could otherwise grow _pending without bound by
+// rapidly firing `python:execute` calls until OOM.
+const MAX_PENDING_REQUESTS = 1000;
 
 // Prefer 'py' (Windows launcher) → 'python3' → 'python'. The bridge tries
 // them in order; the first one that exists AND reports Python 3.x wins.
@@ -367,8 +378,34 @@ export class PythonBridge extends EventEmitter {
             { code, signal }
           )
         );
+      } else if (this._pending.size > 0) {
+        // Intentional shutdown: still reject in-flight requests so callers
+        // don't wait for their per-request timeout after quit().
+        this._rejectAllPending(
+          new ProcessExitError('Python bridge shut down before request completed')
+        );
       }
     });
+
+    // Surface EPIPE / stdin errors to in-flight requests so they don't
+    // silently wait for the per-request timeout. Without this, a closed
+    // stdin (e.g. the child died) leaves every pending send() hung until
+    // the timeout fires, which is a poor user experience for the first
+    // request after a child crash.
+    if (proc.stdin && typeof proc.stdin.on === 'function') {
+      proc.stdin.on('error', (err) => {
+        this.logger.warn('Python bridge stdin error', {
+          message: err && err.message ? err.message : String(err),
+        });
+        if (this._pending.size > 0) {
+          this._rejectAllPending(
+            new ProcessExitError(
+              `Python bridge stdin error: ${err && err.message ? err.message : String(err)}`
+            )
+          );
+        }
+      });
+    }
 
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk) => this._onStdout(chunk));
@@ -423,6 +460,32 @@ export class PythonBridge extends EventEmitter {
 
   _onStdout(chunk) {
     this._stdoutBuffer += chunk;
+    // Bound the stdout buffer so a misbehaving / compromised Python
+    // child that streams bytes without a newline cannot OOM us. If we
+    // exceed the cap, kill the child and reject all pending requests —
+    // a partial line that never terminated is a protocol violation.
+    if (this._stdoutBuffer.length > MAX_STDOUT_BUFFER_BYTES) {
+      this.logger.error('Python bridge stdout buffer exceeded; killing child', {
+        size: this._stdoutBuffer.length,
+        cap: MAX_STDOUT_BUFFER_BYTES,
+      });
+      const proc = this._proc;
+      try {
+        if (proc && typeof proc.kill === 'function') {
+          proc.kill('SIGKILL');
+        }
+      } catch {
+        /* ignore */
+      }
+      this._rejectAllPending(
+        new JsonProtocolError(
+          `Python bridge stdout exceeded ${MAX_STDOUT_BUFFER_BYTES} bytes without a newline; child terminated`,
+          undefined
+        )
+      );
+      this._stdoutBuffer = '';
+      return;
+    }
     let newlineIdx;
     // Process one JSON line at a time. We split rather than parsing the
     // entire buffer so a partial line never blocks subsequent lines.
@@ -484,8 +547,18 @@ export class PythonBridge extends EventEmitter {
     clearTimeout(pending.timer);
     this._pending.delete(parsed.id);
 
-    if (parsed.ok === false) {
-      const err = new Error(parsed.error || 'Python bridge returned an error');
+    // Require an explicit ok: true. Anything that is NOT a clear
+    // `ok: true` is treated as a protocol error so a buggy Python
+    // server that forgets to set ok: true on a successful response
+    // is surfaced as an error rather than silently resolving with
+    // undefined. (Previously, missing ok / ok: 0 / ok: null all fell
+    // through to the success branch, masking the bug as "the command
+    // ran with no output".)
+    if (parsed.ok !== true) {
+      const err = new JsonProtocolError(
+        `Python bridge response missing ok:true (got ${JSON.stringify(parsed.ok)})`,
+        trimmed
+      );
       err.response = parsed;
       pending.reject(err);
     } else {
@@ -503,11 +576,49 @@ export class PythonBridge extends EventEmitter {
     }
     await this.whenReady();
 
+    // Allocate the request id once and reuse it: the envelope id and the
+    // pending-map id MUST agree so the response can be matched. Generating
+    // them separately is a subtle bug that surfaces as "response for
+    // unknown request id" warnings.
     const id = newRequestId();
-    const envelope = JSON.stringify({ id, cmd: command, params });
+    // Pre-flight serialization: validate the params can be turned into JSON
+    // BEFORE entering the Promise constructor's try block, so a circular
+    // reference / BigInt / non-serializable value produces a descriptive
+    // error tagged with the command name instead of a raw TypeError from
+    // JSON.stringify leaking out of the async function body.
+    let envelope;
+    try {
+      envelope = JSON.stringify({ id, cmd: command, params });
+    } catch (err) {
+      throw new Error(
+        `Failed to serialize params for command '${command}': ${err && err.message ? err.message : String(err)}`
+      );
+    }
+
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
 
     return new Promise((resolve, reject) => {
+      // Bail early if the child has died between whenReady() returning
+      // and the caller reaching this point. Without this guard we'd queue
+      // a pending entry on a dead pipe and the caller would only learn
+      // about it after the timeout.
+      if (!this._proc || !this._proc.stdin || this._proc.stdin.destroyed) {
+        reject(new ProcessExitError('Python bridge is not running'));
+        return;
+      }
+
+      // Hard cap on concurrent pending requests. A compromised renderer
+      // or buggy JS loop could otherwise grow _pending indefinitely
+      // until OOM. Reject loudly rather than silently queueing.
+      if (this._pending.size >= MAX_PENDING_REQUESTS) {
+        reject(
+          new Error(
+            `Python bridge has too many pending requests (>= ${MAX_PENDING_REQUESTS}); refusing '${command}'`
+          )
+        );
+        return;
+      }
+
       const timer = setTimeout(() => {
         if (this._pending.has(id)) {
           this._pending.delete(id);
@@ -524,7 +635,19 @@ export class PythonBridge extends EventEmitter {
       this._pending.set(id, { resolve, reject, timer });
 
       try {
-        this._proc.stdin.write(`${envelope}\n`);
+        // Handle stdin backpressure: if .write() returns false the pipe
+        // is full. Pause accepting new entries until 'drain' fires so a
+        // burst of concurrent sends cannot grow _pending indefinitely
+        // and deadlock the Python child.
+        const accepted = this._proc.stdin.write(`${envelope}\n`);
+        if (accepted === false) {
+          this._paused = true;
+          const onDrain = () => {
+            this._paused = false;
+            this._proc && this._proc.stdin && this._proc.stdin.removeListener('drain', onDrain);
+          };
+          this._proc.stdin.once('drain', onDrain);
+        }
       } catch (err) {
         clearTimeout(timer);
         this._pending.delete(id);
@@ -543,12 +666,25 @@ export class PythonBridge extends EventEmitter {
   /**
    * Gracefully terminate the child. Sends SIGTERM (Windows: taskkill /T),
    * waits up to `exitGraceMs` for exit, then SIGKILL.
+   *
+   * Contract: any `send()` calls that are still in flight when `quit()`
+   * is invoked will reject with a `ProcessExitError` so the caller learns
+   * the bridge was shut down underneath them instead of waiting for a
+   * timeout.
    */
   async quit() {
     if (!this._proc) {
+      // Even if no live child, ensure pending requests are drained so a
+      // caller can chain cleanup deterministically after quit().
+      if (this._pending.size > 0) {
+        this._rejectAllPending(
+          new ProcessExitError('Python bridge is shutting down (no live process)')
+        );
+      }
       return;
     }
     this._intentionallyClosed = true;
+    this._quitting = true;
 
     const proc = this._proc;
     const killTimer = setTimeout(() => {
@@ -570,6 +706,30 @@ export class PythonBridge extends EventEmitter {
           /* ignore */
         }
       }
+      // IMPORTANT: register the exit listener BEFORE issuing SIGTERM so
+      // a fast-exit child (e.g. Windows where SIGTERM maps to immediate
+      // termination) does not emit 'exit' before any listener exists,
+      // which would force the caller to wait for the safety timeout.
+      const exitedPromise = new Promise((resolve) => {
+        // If the proc is already null (i.e. 'exit' fired between the
+        // guard above and now), resolve immediately.
+        if (!this._proc) {
+          resolve();
+          return;
+        }
+        // Capture the local proc reference because `this._proc` may be
+        // nulled by the 'exit' handler before our listener fires, but
+        // `proc` is still a valid EventEmitter reference.
+        proc.once('exit', () => resolve());
+        // Safety net in case the child never emits 'exit' (shouldn't
+        // happen but...). Resolves after the SIGKILL grace period plus a
+        // small OS-delivery buffer so we don't leak the await.
+        const safety = setTimeout(resolve, this.exitGraceMs + 50);
+        if (typeof safety.unref === 'function') {
+          safety.unref();
+        }
+      });
+
       // On Windows, SIGTERM is mapped to terminating the process; on POSIX
       // it allows the child to flush before exiting.
       try {
@@ -577,24 +737,37 @@ export class PythonBridge extends EventEmitter {
       } catch {
         /* ignore */
       }
-    } finally {
-      // Wait for the exit event so callers can chain cleanup deterministically.
-      await new Promise((resolve) => {
-        if (!this._proc) {
-          resolve();
-          return;
-        }
-        this.once('exit', resolve);
-        // If the child never emits 'exit' (shouldn't happen, but...), bail
-        // out after the SIGKILL grace period plus a small OS-delivery buffer
-        // so we don't leak the await. The buffer is intentionally tiny so
-        // callers can chain cleanup quickly even when the child is wedged.
-        const safety = setTimeout(resolve, this.exitGraceMs + 50);
-        if (typeof safety.unref === 'function') {
-          safety.unref();
-        }
-      });
+
+      // Now wait for the exit that we registered a listener for.
+      await exitedPromise;
       clearTimeout(killTimer);
+
+      // After exit, any pending requests must be rejected — the contract
+      // promises that quit() does not leave in-flight promises dangling.
+      if (this._pending.size > 0) {
+        this._rejectAllPending(
+          new ProcessExitError('Python bridge shut down before request completed')
+        );
+      }
+    } catch (err) {
+      clearTimeout(killTimer);
+      // Best-effort cleanup so callers don't see a leaked timer.
+      if (this._pending.size > 0) {
+        this._rejectAllPending(
+          new ProcessExitError(
+            `Python bridge quit failed: ${err && err.message ? err.message : String(err)}`
+          )
+        );
+      }
     }
+  }
+
+  /**
+   * Whether the bridge is currently in the process of shutting down.
+   * Used by callers (e.g. main.js before-quit handler) as a re-entrancy
+   * guard so they don't kick off a second quit() while one is in flight.
+   */
+  isQuitting() {
+    return this._quitting === true;
   }
 }

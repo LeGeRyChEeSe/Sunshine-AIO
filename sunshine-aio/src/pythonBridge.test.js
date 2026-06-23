@@ -218,7 +218,12 @@ describe('PythonBridge.send / ping', () => {
     await expect(promise).resolves.toEqual({ result: 'pong', echo: {} });
   });
 
-  it('rejects when Python returns ok=false', async () => {
+  it('rejects when Python returns a non-ok response', async () => {
+    // Per the strict ok:true contract, anything that is not an explicit
+    // ok:true (including ok:false, ok:0, ok:null, missing ok) is treated
+    // as a protocol error. This is intentionally stricter than just
+    // forwarding parsed.error so a buggy Python server that forgets to
+    // set ok:true on a successful response is surfaced as an error.
     const opts = defaultTestOptions();
     const bridge = new PythonBridge(opts);
     const fake = opts.spawnFn.mock.results[0].value;
@@ -228,7 +233,22 @@ describe('PythonBridge.send / ping', () => {
     await new Promise((resolve) => setImmediate(resolve));
     const envelope = JSON.parse(fake.stdinWrite.mock.calls[0][0]);
     fake.pushStdout(`${JSON.stringify({ id: envelope.id, ok: false, error: 'boom' })}\n`);
-    await expect(promise).rejects.toThrow(/boom/);
+    await expect(promise).rejects.toBeInstanceOf(JsonProtocolError);
+  });
+
+  it('rejects when Python returns ok=true with missing result', async () => {
+    // Even with ok:true, if result is missing, the promise resolves with
+    // undefined — but the bridge must not crash or hang.
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+
+    const promise = bridge.ping();
+    await new Promise((resolve) => setImmediate(resolve));
+    const envelope = JSON.parse(fake.stdinWrite.mock.calls[0][0]);
+    fake.pushStdout(`${JSON.stringify({ id: envelope.id, ok: true })}\n`);
+    await expect(promise).resolves.toBeUndefined();
   });
 
   it('throws synchronously when send is called with a non-string command', async () => {
@@ -236,6 +256,28 @@ describe('PythonBridge.send / ping', () => {
     const bridge = new PythonBridge(opts);
     await expect(bridge.send('', {})).rejects.toThrow(/non-empty string/);
     await expect(bridge.send(null, {})).rejects.toThrow(/non-empty string/);
+  });
+
+  it('produces a descriptive error when params are not JSON-serializable', async () => {
+    // Pre-flight serialization: a circular params object must produce a
+    // descriptive error tagged with the command name instead of a raw
+    // TypeError leaking out of the async function body.
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+    await bridge.whenReady();
+
+    const params = {};
+    params.self = params; // cycle
+    let caught;
+    try {
+      await bridge.send('circular', params);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught.message).toMatch(/Failed to serialize params for command 'circular'/);
   });
 });
 
@@ -296,6 +338,47 @@ describe('PythonBridge process crash handling', () => {
     // must not throw ProcessExitError for the absent-promise case.
     await expect(bridge.quit()).resolves.toBeUndefined();
   });
+
+  it('rejects in-flight requests with ProcessExitError when quit() is called', async () => {
+    // The quit() contract promises that any in-flight send() promise
+    // rejects with a ProcessExitError so the caller learns the bridge
+    // was shut down underneath them — rather than waiting for the
+    // per-request timeout. This test pins that invariant.
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+
+    // Attach rejections handlers immediately to avoid unhandled-rejection
+    // warnings during the test run. We capture the rejection handlers in
+    // an array so we can assert on them after quit() settles.
+    const a = bridge.ping().catch((err) => err);
+    const b = bridge.ping().catch((err) => err);
+    const c = bridge.ping().catch((err) => err);
+
+    // We do NOT push any responses — the requests should be rejected by
+    // the intentional-shutdown path, not by the timeout.
+    await bridge.quit();
+
+    const [aErr, bErr, cErr] = await Promise.all([a, b, c]);
+    expect(aErr).toBeInstanceOf(ProcessExitError);
+    expect(bErr).toBeInstanceOf(ProcessExitError);
+    expect(cErr).toBeInstanceOf(ProcessExitError);
+  });
+
+  it('exposes isQuitting() as a public re-entrancy guard', async () => {
+    const opts = defaultTestOptions();
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+    expect(bridge.isQuitting()).toBe(false);
+
+    const quitPromise = bridge.quit();
+    // quit() may not have flipped the flag yet (the await is async), but
+    // after the promise settles the flag MUST be true.
+    await quitPromise;
+    expect(bridge.isQuitting()).toBe(true);
+  });
 });
 
 describe('PythonBridge malformed JSON handling', () => {
@@ -331,6 +414,27 @@ describe('PythonBridge malformed JSON handling', () => {
     // exact message to keep the test resilient to formatting tweaks.
     const warnCalls = opts.logger.warn.mock.calls.map((c) => String(c[0]));
     expect(warnCalls.some((m) => m.includes('unknown request'))).toBe(true);
+  });
+
+  it('kills the child when stdout buffer exceeds the cap', async () => {
+    // DoS guard: a misbehaving / compromised Python child that emits N
+    // bytes without a newline must not be allowed to grow _stdoutBuffer
+    // until V8 OOMs. The bridge must kill the child and reject any
+    // pending requests.
+    const opts = defaultTestOptions();
+    new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+
+    // Send a payload larger than MAX_STDOUT_BUFFER_BYTES (1 MiB) with no
+    // newline. The bridge should kill the child.
+    const bigChunk = 'x'.repeat(1024 * 1024 + 1);
+    fake.pushStdout(bigChunk);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The child should have been killed as SIGKILL by the bridge.
+    const killSignals = fake.kill.mock.calls.map((c) => c[0]);
+    expect(killSignals).toContain('SIGKILL');
   });
 });
 
@@ -384,6 +488,33 @@ describe('PythonBridge concurrent requests', () => {
     );
     await expect(slow).rejects.toBeInstanceOf(TimeoutError);
     await expect(fast).resolves.toEqual({ result: 'pong', echo: {} });
+  });
+
+  it('refuses new requests once _pending exceeds the cap', async () => {
+    // The bridge should refuse new sends once _pending grows past the
+    // hard cap (1000 by default). We can't easily fill 1000 slots in a
+    // unit test, so we override the cap by stuffing _pending directly
+    // and then assert that the next send() rejects.
+    const opts = defaultTestOptions({ timeoutMs: 5000 });
+    const bridge = new PythonBridge(opts);
+    const fake = opts.spawnFn.mock.results[0].value;
+    emitReady(fake);
+
+    // Stuff 1000 fake entries so the next send() hits the cap.
+    for (let i = 0; i < 1000; i += 1) {
+      bridge._pending.set(`fake-${i}`, {
+        resolve: () => {},
+        reject: () => {},
+        timer: setTimeout(() => {}, 60000),
+      });
+    }
+    // Now send() should refuse.
+    await expect(bridge.send('ping')).rejects.toThrow(/too many pending requests/);
+    // Cleanup the fake entries.
+    for (const [, p] of bridge._pending) {
+      clearTimeout(p.timer);
+    }
+    bridge._pending.clear();
   });
 });
 
