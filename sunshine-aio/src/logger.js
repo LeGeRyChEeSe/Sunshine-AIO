@@ -37,7 +37,43 @@ export const MAX_FILES = 5; // keep up to 5 rotated backup files
  * Format a log line.
  * Format: "YYYY-MM-DDTHH:mm:ss.sssZ LEVEL message" with optional metadata.
  * If an Error is passed as meta, the stack is appended on subsequent lines.
+ * If the Error has a `cause` (ES2022 Error chaining), the cause chain is
+ * appended recursively with a depth limit so post-mortem diagnosis can
+ * trace the full causal chain.
  */
+const MAX_CAUSE_DEPTH = 10;
+
+/**
+ * Serialize an Error (or any value) for inclusion in a log line. Recurses
+ * into `cause` properties to preserve ES2022 error chains.
+ *
+ * Returns a newline-prefixed line describing `err`. If `err` has a `.cause`,
+ * the chain continues recursively, each link prefixed with "Caused by:".
+ */
+export const formatErrorChain = (err, depth = 0) => {
+  if (depth >= MAX_CAUSE_DEPTH) {
+    return `\n[cause chain truncated at depth ${MAX_CAUSE_DEPTH}]`;
+  }
+  if (err === undefined || err === null) {
+    return '';
+  }
+  let head;
+  if (err instanceof Error) {
+    const stack = err.stack || `${err.name}: ${err.message}`;
+    head = stack;
+  } else if (typeof err === 'object') {
+    head = String(err);
+  } else {
+    head = String(err);
+  }
+
+  let line = `\nCaused by: ${head}`;
+  if (err && typeof err === 'object' && err.cause) {
+    line += formatErrorChain(err.cause, depth + 1);
+  }
+  return line;
+};
+
 export const formatLogLine = (level, message, meta, timestamp = new Date()) => {
   const ts = timestamp.toISOString();
   let line = `${ts} ${level.toUpperCase()} ${message}`;
@@ -46,11 +82,28 @@ export const formatLogLine = (level, message, meta, timestamp = new Date()) => {
     if (meta instanceof Error) {
       const stack = meta.stack || `${meta.name}: ${meta.message}`;
       line += `\n${stack}`;
+      // Preserve ES2022 Error.cause chain so the full causal context survives.
+      if (meta.cause) {
+        line += formatErrorChain(meta.cause);
+      }
     } else if (typeof meta === 'object') {
-      try {
-        line += ` ${JSON.stringify(meta)}`;
-      } catch {
-        line += ` [unserializable meta]`;
+      // Errors can also arrive wrapped in a plain object literal — preserve
+      // any `cause` field that holds an Error or a serializable value.
+      if (meta.cause !== undefined && meta.cause !== null) {
+        try {
+          // Append structured meta first, then any human-readable cause line.
+          line += ` ${JSON.stringify(meta)}`;
+          line += formatErrorChain(meta.cause);
+        } catch {
+          line += ` [unserializable meta]`;
+          line += formatErrorChain(meta.cause);
+        }
+      } else {
+        try {
+          line += ` ${JSON.stringify(meta)}`;
+        } catch {
+          line += ` [unserializable meta]`;
+        }
       }
     } else {
       line += ` ${String(meta)}`;
@@ -173,7 +226,10 @@ export const createLogger = ({
         () =>
           new Promise((resolve) => {
             try {
-              // Check size and rotate if needed
+              // Check size and rotate if needed. We rotate before the append
+              // when the existing file is already at or above the threshold,
+              // and again AFTER the append if the single write pushed us
+              // over the threshold on its own (e.g. a massive meta payload).
               if (
                 injectedFs.existsSync(filePath) &&
                 injectedFs.statSync(filePath).size >= MAX_FILE_SIZE_BYTES
@@ -181,6 +237,12 @@ export const createLogger = ({
                 rotateFiles(logsDir, fileName, injectedFs);
               }
               injectedFs.appendFileSync(filePath, `${line}\n`);
+              if (
+                injectedFs.existsSync(filePath) &&
+                injectedFs.statSync(filePath).size >= MAX_FILE_SIZE_BYTES
+              ) {
+                rotateFiles(logsDir, fileName, injectedFs);
+              }
             } catch (err) {
               // Last-resort: surface to stderr but never throw to caller
               process.stderr.write(`[LOGGER] Failed to write log: ${err.message}\n`);

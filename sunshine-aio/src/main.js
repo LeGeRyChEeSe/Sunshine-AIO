@@ -32,12 +32,38 @@ process.on('uncaughtException', (error) => {
   } catch (dialogError) {
     logger.error('Failed to display error dialog', dialogError);
   }
-  app.exit(1);
+  // Flush asynchronously before exiting so the fatal error actually lands in
+  // the log file. app.exit() does not wait for I/O; without this, the very
+  // entry we are trying to persist can be lost.
+  logger
+    .flush()
+    .catch((flushErr) => {
+      try {
+        process.stderr.write(`Fatal logger flush failed: ${flushErr.message}\n`);
+      } catch {}
+    })
+    .finally(() => {
+      app.exit(1);
+    });
 });
 
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   logger.error('Unhandled promise rejection in main process', err);
+});
+
+// Register IPC handlers ONCE at module load. Doing this inside createWindow()
+// would re-register on every window recreation (macOS reactivation, reload,
+// future multi-window support) and cause every renderer log to be duplicated.
+ipcMain.handle('log:write', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') {
+    logger.warn('Renderer sent invalid log payload');
+    return { ok: false };
+  }
+  const { level, message, meta } = payload;
+  const safeLevel = ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info';
+  logger[safeLevel](`[renderer] ${typeof message === 'string' ? message : ''}`, meta);
+  return { ok: true };
 });
 
 const createWindow = () => {
@@ -58,18 +84,10 @@ const createWindow = () => {
 
   logger.info('Main window created', { id: mainWindow.id });
 
-  // Forward renderer-reported errors back to the main-process logger so they
-  // share a single log file. Renderer cannot touch the FS directly.
-  ipcMain.handle('log:write', (_event, payload) => {
-    if (!payload || typeof payload !== 'object') {
-      logger.warn('Renderer sent invalid log payload');
-      return { ok: false };
-    }
-    const { level, message, meta } = payload;
-    const safeLevel = ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info';
-    logger[safeLevel](`[renderer] ${typeof message === 'string' ? message : ''}`, meta);
-    return { ok: true };
-  });
+  // Note: the 'log:write' IPC handler is registered ONCE at module load
+  // (above). Do NOT re-register it here — that would duplicate every
+  // renderer log line on window recreation (macOS reactivation, reload,
+  // future multi-window support).
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -115,12 +133,21 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('will-quit', () => {
+app.on('will-quit', (event) => {
   logger.info('App will quit, flushing logger');
-  // Best-effort flush — we are about to exit anyway.
-  try {
-    logger.flush();
-  } catch (flushError) {
-    process.stderr.write(`Logger flush failed: ${flushError.message}\n`);
-  }
+  // Prevent the quit until the pending log writes have flushed. Without
+  // this, Electron terminates the process before the async file writes
+  // resolve and we lose the final log entries (often the most important
+  // ones for diagnosing a crash).
+  event.preventDefault();
+  logger
+    .flush()
+    .catch((flushError) => {
+      try {
+        process.stderr.write(`Logger flush failed: ${flushError.message}\n`);
+      } catch {}
+    })
+    .finally(() => {
+      app.exit(0);
+    });
 });

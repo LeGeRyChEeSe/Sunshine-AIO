@@ -17,6 +17,7 @@ import path from 'node:path';
 import {
   createLogger,
   defaultLogsDir,
+  formatErrorChain,
   formatLogLine,
   getLogFileName,
   LOG_LEVELS,
@@ -64,6 +65,54 @@ describe('formatLogLine', () => {
     cyclic.self = cyclic;
     const line = formatLogLine('warn', 'cyclic', cyclic, new Date('2026-01-01T00:00:00.000Z'));
     expect(line).toContain('[unserializable meta]');
+  });
+
+  it('preserves ES2022 Error.cause chain on an Error meta', () => {
+    const root = new Error('root');
+    const wrapped = new Error('wrapped', { cause: root });
+    const line = formatLogLine('error', 'crash', wrapped, new Date('2026-01-01T00:00:00.000Z'));
+    expect(line).toContain('Caused by:');
+    expect(line).toContain('root');
+  });
+
+  it('recurses into nested Error.cause chains', () => {
+    const root = new Error('level-3');
+    const mid = new Error('level-2', { cause: root });
+    const top = new Error('level-1', { cause: mid });
+    const line = formatLogLine('error', 'crash', top, new Date('2026-01-01T00:00:00.000Z'));
+    expect(line).toContain('level-1');
+    expect(line).toContain('level-2');
+    expect(line).toContain('level-3');
+  });
+
+  it('truncates very deep Error.cause chains safely', () => {
+    let err = new Error('leaf');
+    for (let i = 0; i < 25; i += 1) {
+      err = new Error(`wrap-${i}`, { cause: err });
+    }
+    const line = formatLogLine('error', 'crash', err, new Date('2026-01-01T00:00:00.000Z'));
+    expect(line).toContain('[cause chain truncated at depth');
+  });
+
+  it('preserves a cause on a plain-object meta', () => {
+    const inner = new Error('inner cause');
+    const meta = { reason: 'explosion', cause: inner };
+    const line = formatLogLine('error', 'crash', meta, new Date('2026-01-01T00:00:00.000Z'));
+    expect(line).toContain('"reason":"explosion"');
+    expect(line).toContain('Caused by:');
+    expect(line).toContain('inner cause');
+  });
+});
+
+describe('formatErrorChain', () => {
+  it('returns an empty string for nullish input', () => {
+    expect(formatErrorChain(null)).toBe('');
+    expect(formatErrorChain(undefined)).toBe('');
+  });
+
+  it('serializes non-Error values as a Caused by: line', () => {
+    expect(formatErrorChain('disk gone')).toContain('Caused by: disk gone');
+    expect(formatErrorChain(42)).toContain('Caused by: 42');
   });
 });
 
@@ -214,6 +263,44 @@ describe('createLogger', () => {
 
     expect(fakeFs.renameSync).toHaveBeenCalled();
     expect(writeCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rotates again if a single append pushed the file over MAX_FILE_SIZE_BYTES', async () => {
+    // Track file size across appends: start under threshold, jump over it on
+    // the first append. The second statSync (post-append) should trigger a
+    // rotation that the pre-append check missed.
+    const sizes = [0, MAX_FILE_SIZE_BYTES + 10];
+    let statIndex = 0;
+    const fakeFs = {
+      existsSync: vi.fn((p) => {
+        if (p.endsWith('sunshine-aio-2026-06-23.log')) return true;
+        return false;
+      }),
+      statSync: vi.fn(() => ({ size: sizes[Math.min(statIndex++, sizes.length - 1)] })),
+      appendFileSync: vi.fn(),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      rmSync: vi.fn(),
+      readFileSync: vi.fn(),
+      writeFileSync: vi.fn(),
+    };
+
+    const logger = createLogger({
+      logsDir: tempDir,
+      consoleLevel: 'error',
+      fs: fakeFs,
+      now: () => new Date('2026-06-23T10:00:00.000Z'),
+    });
+
+    logger.info('massive single write');
+    await logger.flush();
+
+    // The append alone pushed the file over the threshold, so a rotation
+    // had to happen even though the pre-append check saw size === 0.
+    expect(fakeFs.renameSync).toHaveBeenCalled();
+    // statSync was invoked at least twice (pre- and post-append check).
+    expect(fakeFs.statSync.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('rotateFiles deletes the oldest backup once MAX_FILES is exceeded', () => {
