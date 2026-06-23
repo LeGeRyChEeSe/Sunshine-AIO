@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-nfr-assess'
+inputDocuments: []
 ---
 
 # NFR Assessment - {FEATURE_NAME}
@@ -262,7 +264,7 @@ Note: This assessment summarizes existing evidence; it does not run tests or CI 
    - {SPECIFIC_STEPS}
    - {VALIDATION_CRITERIA}
 
-### Short-term (Next Sprint) - MEDIUM Priority
+### Short-term (Next Milestone) - MEDIUM Priority
 
 1. **{ACTION_TITLE_3}** - {PRIORITY} - {ESTIMATED_EFFORT} - {OWNER}
    - {ACTION_DESCRIPTION}

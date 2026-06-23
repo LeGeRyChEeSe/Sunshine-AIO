@@ -4,10 +4,22 @@
 
 - [ ] Git repository initialized (`.git/` exists)
 - [ ] Git remote configured (`git remote -v` shows origin)
-- [ ] Test framework configured (`playwright.config._` or `cypress.config._`)
-- [ ] Local tests pass (`npm run test:e2e` succeeds)
+- [ ] Test framework configured (appropriate config for detected stack type)
+- [ ] Local tests pass (test command succeeds)
 - [ ] Team agrees on CI platform
 - [ ] Access to CI platform settings (if updating)
+
+### Multi-Stack Detection
+
+- [ ] Test stack type detected or configured (`frontend`, `backend`, `fullstack`)
+- [ ] Test framework detected or configured (Playwright, Cypress, Jest, Vitest, etc.)
+- [ ] Stack-appropriate test commands identified
+
+### Multi-Platform Detection
+
+- [ ] CI platform detected or configured
+- [ ] Supported platform: GitHub Actions, GitLab CI, Jenkins, Azure DevOps, Harness, or Circle CI
+- [ ] Platform-specific template selected
 
 Note: CI setup is typically a one-time task per repo and can be run any time after the test framework is configured.
 
@@ -24,11 +36,21 @@ Note: CI setup is typically a one-time task per repo and can be run any time aft
 
 ### Step 2: CI Pipeline Configuration
 
-- [ ] CI configuration file created (`.github/workflows/test.yml` or `.gitlab-ci.yml`)
-- [ ] File is syntactically valid (no YAML errors)
-- [ ] Correct framework commands configured
+- [ ] CI configuration file created at platform-correct path
+  - GitHub Actions: `.github/workflows/test.yml`
+  - GitLab CI: `.gitlab-ci.yml`
+  - Jenkins: `Jenkinsfile`
+  - Azure DevOps: `azure-pipelines.yml`
+  - Harness: `.harness/pipeline.yaml`
+  - Circle CI: `.circleci/config.yml`
+- [ ] File is syntactically valid (no YAML/Groovy errors)
+- [ ] Correct framework commands configured for detected stack type
 - [ ] Node version matches project
 - [ ] Test directory paths correct
+- [ ] Stack-conditional steps applied:
+  - [ ] Browser install included for frontend/fullstack stacks
+  - [ ] Browser install omitted for backend-only stacks
+  - [ ] Test commands match detected framework
 
 ### Step 3: Parallel Sharding
 
@@ -39,11 +61,12 @@ Note: CI setup is typically a one-time task per repo and can be run any time aft
 
 ### Step 4: Burn-In Loop
 
-- [ ] Burn-in job created
-- [ ] 10 iterations configured
+- [ ] Burn-in job created (frontend/fullstack stacks) or intentionally skipped (backend-only)
+- [ ] 10 iterations configured (when enabled)
 - [ ] Proper exit on failure (`|| exit 1`)
 - [ ] Runs on appropriate triggers (PR, cron)
 - [ ] Failure artifacts uploaded
+- [ ] Backend-only stacks: burn-in skipped by default (documented reason: targets UI flakiness)
 
 ### Step 5: Caching Configuration
 
@@ -236,6 +259,24 @@ If workflow fails:
 - Variables: Project Settings → CI/CD → Variables
 - Runners: Shared or project-specific
 - Pipeline quota: 400 minutes/month free tier
+
+**Jenkins:**
+
+- Credentials: Manage Jenkins → Manage Credentials
+- Agents: Configure build agents with Node.js
+- Plugins: Pipeline, JUnit, HTML Publisher recommended
+
+**Azure DevOps:**
+
+- Variables: Pipelines → Library → Variable groups
+- Agent pools: Azure-hosted or self-hosted
+- Parallel jobs: 1 free (Microsoft-hosted)
+
+**Harness:**
+
+- Connectors: Configure container registry and code repo connectors
+- Delegates: Install Harness delegate in target infrastructure
+- Steps: Use Run steps with appropriate container images
 
 ---
 

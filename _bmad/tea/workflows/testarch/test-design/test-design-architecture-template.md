@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-test-design'
+inputDocuments: []
 ---
 
 # Test Design for Architecture: {Feature Name}
@@ -49,21 +51,21 @@ lastSaved: ''
 
 ### 🚨 BLOCKERS - Team Must Decide (Can't Proceed Without)
 
-**Sprint 0 Critical Path** - These MUST be completed before QA can write integration tests:
+**Pre-Implementation Critical Path** - These MUST be completed before QA can write integration tests:
 
 1. **{Blocker ID}: {Blocker Title}** - {What architecture must provide} (recommended owner: {Team/Role})
 2. **{Blocker ID}: {Blocker Title}** - {What architecture must provide} (recommended owner: {Team/Role})
 3. **{Blocker ID}: {Blocker Title}** - {What architecture must provide} (recommended owner: {Team/Role})
 
-**What we need from team:** Complete these {N} items in Sprint 0 or test development is blocked.
+**What we need from team:** Complete these {N} items pre-implementation or test development is blocked.
 
 ---
 
 ### ⚠️ HIGH PRIORITY - Team Should Validate (We Provide Recommendation, You Approve)
 
-1. **{Risk ID}: {Title}** - {Recommendation + who should approve} (Sprint {N})
-2. **{Risk ID}: {Title}** - {Recommendation + who should approve} (Sprint {N})
-3. **{Risk ID}: {Title}** - {Recommendation + who should approve} (Sprint {N})
+1. **{Risk ID}: {Title}** - {Recommendation + who should approve} (implementation phase)
+2. **{Risk ID}: {Title}** - {Recommendation + who should approve} (implementation phase)
+3. **{Risk ID}: {Title}** - {Recommendation + who should approve} (implementation phase)
 
 **What we need from team:** Review recommendations and approve (or suggest changes).
 
@@ -124,13 +126,13 @@ lastSaved: ''
 
 #### 1. Blockers to Fast Feedback (WHAT WE NEED FROM ARCHITECTURE)
 
-| Concern            | Impact              | What Architecture Must Provide         | Owner  | Timeline |
-| ------------------ | ------------------- | -------------------------------------- | ------ | -------- |
-| **{Concern name}** | {Impact on testing} | {Specific architectural change needed} | {Team} | {Sprint} |
+| Concern            | Impact              | What Architecture Must Provide         | Owner  | Timeline    |
+| ------------------ | ------------------- | -------------------------------------- | ------ | ----------- |
+| **{Concern name}** | {Impact on testing} | {Specific architectural change needed} | {Team} | {Milestone} |
 
 **Example:**
 
-- **No API for test data seeding** → Cannot parallelize tests → Provide POST /test/seed endpoint (Backend, Sprint 0)
+- **No API for test data seeding** → Cannot parallelize tests → Provide POST /test/seed endpoint (Backend, pre-implementation)
 
 #### 2. Architectural Improvements Needed (WHAT SHOULD BE CHANGED)
 
@@ -141,7 +143,7 @@ lastSaved: ''
    - **Required change**: {What architecture must do}
    - **Impact if not fixed**: {Consequences}
    - **Owner**: {Team}
-   - **Timeline**: {Sprint}
+   - **Timeline**: {Milestone}
 
 ---
 
@@ -181,7 +183,7 @@ For {Feature} Phase 1, the following trade-offs are acceptable:
 3. {Step 3}
 
 **Owner:** {Owner}
-**Timeline:** {Sprint or date}
+**Timeline:** {Milestone or date}
 **Status:** Planned / In Progress / Complete
 **Verification:** {How to verify mitigation is effective}
 
@@ -201,8 +203,8 @@ For {Feature} Phase 1, the following trade-offs are acceptable:
 
 #### Dependencies
 
-1. {Dependency} - Required by {date/sprint}
-2. {Dependency} - Required by {date/sprint}
+1. {Dependency} - Required by {date/milestone}
+2. {Dependency} - Required by {date/milestone}
 
 #### Risks to Plan
 
@@ -223,6 +225,6 @@ For {Feature} Phase 1, the following trade-offs are acceptable:
 
 **Next Steps for QA Team:**
 
-1. Wait for Sprint 0 blockers to be resolved
+1. Wait for pre-implementation blockers to be resolved
 2. Refer to companion QA doc (test-design-qa.md) for test scenarios
 3. Begin test infrastructure setup (factories, fixtures, environments)

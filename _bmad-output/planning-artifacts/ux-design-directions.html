@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunshine-AIO Design Directions</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: #0a0a0f; color: #fff; }
+        .header { padding: 24px; background: #1a1a2e; text-align: center; }
+        .header h1 { font-size: 28px; margin-bottom: 8px; }
+        .header p { color: #a0a0b0; }
+        .nav { display: flex; gap: 16px; padding: 16px 24px; background: #151520; justify-content: center; flex-wrap: wrap; }
+        .nav button { padding: 10px 20px; background: #00d4ff; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .nav button:hover { background: #00b8e6; }
+        .direction { display: none; padding: 24px; }
+        .direction.active { display: block; }
+        .mockup { background: #0a0a0f; border-radius: 12px; overflow: hidden; margin: 16px 0; }
+        .mockup-header { background: #151520; padding: 12px 16px; display: flex; align-items: center; gap: 8px; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dot.red { background: #e74c3c; }
+        .dot.yellow { background: #f39c12; }
+        .dot.green { background: #50c878; }
+        .mockup-content { height: 400px; position: relative; overflow: hidden; }
+        .solar-system { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .sun { width: 60px; height: 60px; background: radial-gradient(circle, #ffcc00, #ff9500); border-radius: 50%; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 40px #ff9500; }
+        .planet { position: absolute; border-radius: 50%; cursor: pointer; transition: transform 0.3s, box-shadow 0.3s; }
+        .planet:hover { transform: scale(1.15); }
+        .orbit { position: absolute; border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+        .description { padding: 20px; }
+        .description h3 { color: #00d4ff; margin-bottom: 12px; }
+        .description p { color: #a0a0b0; line-height: 1.6; }
+        .features { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .tag { background: #1a1a2e; padding: 4px 12px; border-radius: 20px; font-size: 12px; color: #a0a0b0; }
+        .overlay { position: absolute; right: -400px; top: 0; width: 380px; height: 100%; background: rgba(26,26,46,0.95); backdrop-filter: blur(10px); padding: 24px; transition: right 0.3s; border-left: 1px solid rgba(255,255,255,0.1); }
+        .mockup:hover .overlay { right: 0; }
+        .overlay h2 { font-size: 20px; margin-bottom: 16px; }
+        .app-card { background: #151520; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; }
+        .app-icon { width: 48px; height: 48px; background: linear-gradient(135deg, #4a90d9, #00d4ff); border-radius: 8px; }
+        .app-info h4 { font-size: 14px; margin-bottom: 4px; }
+        .app-info p { font-size: 12px; color: #a0a0b0; }
+        .btn-install { background: #00d4ff; color: #000; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        /* Direction 2: Dark Space */
+        .dir2 .planet { box-shadow: 0 0 10px currentColor; }
+        .dir2 .sun { box-shadow: 0 0 60px #ff9500, 0 0 100px rgba(255,149,0,0.5); }
+        /* Direction 3: Minimal */
+        .dir3 .mockup-content { background: #000; }
+        .dir3 .orbit { border-color: rgba(255,255,255,0.05); }
+        .dir3 .planet { border: 2px solid transparent; }
+        .dir3 .planet.installed { border-color: currentColor; }
+        /* Direction 4: Neon */
+        .dir4 .planet { box-shadow: 0 0 20px currentColor; }
+        .dir4 .sun { box-shadow: 0 0 80px #00d4ff; }
+        .dir4 .overlay { background: rgba(0,0,0,0.9); border: 1px solid #00d4ff; }
+        .dir4 .btn-install { background: transparent; border: 2px solid #00d4ff; color: #00d4ff; }
+        /* Direction 5: Warm */
+        .dir5 .sun { background: radial-gradient(circle, #fff, #ff6b35); box-shadow: 0 0 50px #ff6b35; }
+        .dir5 .planet.installed { filter: brightness(1.2); }
+        /* Direction 6: Cold */
+        .dir6 .sun { background: radial-gradient(circle, #fff, #4a90d9); box-shadow: 0 0 40px #4a90d9; }
+        .dir6 .planet { filter: saturate(0.8); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Sunshine-AIO Design Directions</h1>
+        <p>Explore different visual approaches for your 3D solar system interface</p>
+    </div>
+    <div class="nav">
+        <button onclick="showDir(1)">Direction 1: Classic</button>
+        <button onclick="showDir(2)">Direction 2: Dark Space</button>
+        <button onclick="showDir(3)">Direction 3: Minimal</button>
+        <button onclick="showDir(4)">Direction 4: Neon Cyber</button>
+        <button onclick="showDir(5)">Direction 5: Warm Sunset</button>
+        <button onclick="showDir(6)">Direction 6: Cold Nebula</button>
+    </div>
+
+    <div id="dir1" class="direction active">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content" style="background: linear-gradient(180deg, #0a0a0f 0%, #151520 100%);">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 200px; height: 200px;"></div>
+                    <div class="orbit" style="width: 300px; height: 300px;"></div>
+                    <div class="orbit" style="width: 420px; height: 420px;"></div>
+                    <div class="sun"></div>
+                    <div class="planet installed" style="width: 24px; height: 24px; background: #4a90d9; left: 140px; top: 80px;"></div>
+                    <div class="planet installed" style="width: 32px; height: 32px; background: #50c878; left: 210px; top: 150px;"></div>
+                    <div class="planet" style="width: 20px; height: 20px; background: #4a4a5a; left: 80px; top: 200px;"></div>
+                    <div class="planet" style="width: 28px; height: 28px; background: #4a4a5a; left: 280px; top: 100px;"></div>
+                    <div class="overlay">
+                        <h2>Streaming Tools</h2>
+                        <div class="app-card">
+                            <div class="app-icon"></div>
+                            <div class="app-info"><h4>Sunshine</h4><p>Game streaming server</p></div>
+                            <button class="btn-install">Installed</button>
+                        </div>
+                        <div class="app-card">
+                            <div class="app-icon" style="background: linear-gradient(135deg, #50c878, #2ecc71);"></div>
+                            <div class="app-info"><h4>Playnite</h4><p>Game library manager</p></div>
+                            <button class="btn-install">Installed</button>
+                        </div>
+                        <div class="app-card">
+                            <div class="app-icon" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);"></div>
+                            <div class="app-info"><h4>Moonlight</h4><p>Game streaming client</p></div>
+                            <button class="btn-install">Install</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 1: Classic Space</h3>
+            <p>Clean, balanced approach with visible orbits and clear planet distinction. The overlay slides in on hover, revealing app details. Good contrast between installed (colored) and available (grayed) planets.</p>
+            <div class="features">
+                <span class="tag">Visible Orbits</span>
+                <span class="tag">Hover Overlay</span>
+                <span class="tag">Clear States</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="dir2" class="direction dir2">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content" style="background: #000;">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 180px; height: 180px; border-style: dashed;"></div>
+                    <div class="orbit" style="width: 280px; height: 280px; border-style: dashed;"></div>
+                    <div class="orbit" style="width: 400px; height: 400px; border-style: dashed;"></div>
+                    <div class="sun"></div>
+                    <div class="planet installed" style="width: 28px; height: 28px; background: #e74c3c; color: #e74c3c; left: 130px; top: 70px;"></div>
+                    <div class="planet installed" style="width: 36px; height: 36px; background: #9b59b6; color: #9b59b6; left: 200px; top: 140px;"></div>
+                    <div class="planet" style="width: 22px; height: 22px; background: #333; color: #333; left: 70px; top: 180px;"></div>
+                    <div class="planet" style="width: 30px; height: 30px; background: #333; color: #333; left: 260px; top: 90px;"></div>
+                    <div class="overlay" style="right: 0;">
+                        <h2>Category Name</h2>
+                        <p style="color: #a0a0b0; margin-bottom: 16px;">Click on planets to explore apps</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 2: Dark Space</h3>
+            <p>Deeper black background with dashed orbital paths. Planets have subtle glow effects. More atmospheric and immersive feel, like deep space exploration.</p>
+            <div class="features">
+                <span class="tag">Dashed Orbits</span>
+                <span class="tag">Planet Glow</span>
+                <span class="tag">Atmospheric</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="dir3" class="direction dir3">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 160px; height: 160px;"></div>
+                    <div class="orbit" style="width: 260px; height: 260px;"></div>
+                    <div class="orbit" style="width: 380px; height: 380px;"></div>
+                    <div class="sun" style="width: 40px; height: 40px; box-shadow: 0 0 20px #ffcc00;"></div>
+                    <div class="planet installed" style="width: 20px; height: 20px; background: #fff; left: 120px; top: 60px;"></div>
+                    <div class="planet installed" style="width: 28px; height: 28px; background: #888; left: 180px; top: 130px;"></div>
+                    <div class="planet" style="width: 18px; height: 18px; background: #333; left: 60px; top: 160px;"></div>
+                    <div class="planet" style="width: 24px; height: 24px; background: #333; left: 240px; top: 80px;"></div>
+                    <div class="overlay" style="right: 0; background: rgba(0,0,0,0.8);">
+                        <h2 style="font-size: 16px;">Minimal Interface</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 3: Minimal</h3>
+            <p>Ultra-minimal design with smaller sun and subtle orbits. Focus on the planets themselves. Best for performance on lower-end hardware.</p>
+            <div class="features">
+                <span class="tag">Small Sun</span>
+                <span class="tag">Subtle Orbits</span>
+                <span class="tag">Performance</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="dir4" class="direction dir4">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content" style="background: #050510;">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 200px; height: 200px; border-color: rgba(0,212,255,0.3);"></div>
+                    <div class="orbit" style="width: 320px; height: 320px; border-color: rgba(0,212,255,0.2);"></div>
+                    <div class="sun" style="background: radial-gradient(circle, #fff, #00d4ff);"></div>
+                    <div class="planet installed" style="width: 26px; height: 26px; background: #00d4ff; color: #00d4ff; left: 140px; top: 80px;"></div>
+                    <div class="planet installed" style="width: 34px; height: 34px; background: #ff00ff; color: #ff00ff; left: 220px; top: 150px;"></div>
+                    <div class="planet" style="width: 22px; height: 22px; background: #333; color: #333; left: 80px; top: 200px;"></div>
+                    <div class="planet" style="width: 28px; height: 28px; background: #333; color: #333; left: 280px; top: 100px;"></div>
+                    <div class="overlay" style="right: 0;">
+                        <h2 style="color: #00d4ff;">CYBER</h2>
+                        <div class="app-card" style="border: 1px solid #00d4ff;">
+                            <div class="app-icon" style="background: #00d4ff;"></div>
+                            <div class="app-info"><h4>App Name</h4><p>Version 1.0</p></div>
+                            <button class="btn-install">GET</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 4: Neon Cyber</h3>
+            <p>Cyberpunk-inspired design with cyan accents and neon glows. Perfect for gaming-focused audience. Bold, high-contrast visual statement.</p>
+            <div class="features">
+                <span class="tag">Neon Glows</span>
+                <span class="tag">Cyan Accents</span>
+                <span class="tag">Gaming Focus</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="dir5" class="direction dir5">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content" style="background: linear-gradient(135deg, #1a0a0a 0%, #0a0a0f 50%, #0a0a1a 100%);">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 200px; height: 200px; border-color: rgba(255,107,53,0.2);"></div>
+                    <div class="orbit" style="width: 320px; height: 320px; border-color: rgba(255,107,53,0.15);"></div>
+                    <div class="sun"></div>
+                    <div class="planet installed" style="width: 28px; height: 28px; background: #ff6b35; left: 140px; top: 80px;"></div>
+                    <div class="planet installed" style="width: 32px; height: 32px; background: #f39c12; left: 220px; top: 150px;"></div>
+                    <div class="planet" style="width: 20px; height: 20px; background: #4a3a2a; left: 80px; top: 200px;"></div>
+                    <div class="planet" style="width: 26px; height: 26px; background: #4a3a2a; left: 280px; top: 100px;"></div>
+                    <div class="overlay" style="right: 0; background: rgba(26,15,10,0.95);">
+                        <h2 style="color: #ff6b35;">Warm Space</h2>
+                        <p style="color: #a0a0b0;">Cozy, inviting atmosphere</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 5: Warm Sunset</h3>
+            <p>Warm color palette with orange and yellow tones. Creates a cozy, inviting atmosphere. Different from typical cold space aesthetics.</p>
+            <div class="features">
+                <span class="tag">Warm Colors</span>
+                <span class="tag">Orange Sun</span>
+                <span class="tag">Cozy Feel</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="dir6" class="direction dir6">
+        <div class="mockup">
+            <div class="mockup-header"><div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div></div>
+            <div class="mockup-content" style="background: radial-gradient(ellipse at center, #0a1525 0%, #000 100%);">
+                <div class="solar-system">
+                    <div class="orbit" style="width: 200px; height: 200px; border-color: rgba(74,144,217,0.2);"></div>
+                    <div class="orbit" style="width: 320px; height: 320px; border-color: rgba(74,144,217,0.15);"></div>
+                    <div class="sun"></div>
+                    <div class="planet installed" style="width: 26px; height: 26px; background: #4a90d9; left: 140px; top: 80px;"></div>
+                    <div class="planet installed" style="width: 30px; height: 30px; background: #3498db; left: 220px; top: 150px;"></div>
+                    <div class="planet" style="width: 22px; height: 22px; background: #2a3a4a; left: 80px; top: 200px;"></div>
+                    <div class="planet" style="width: 28px; height: 28px; background: #2a3a4a; left: 280px; top: 100px;"></div>
+                    <div class="overlay" style="right: 0; background: rgba(10,20,40,0.95);">
+                        <h2 style="color: #4a90d9;">Nebula</h2>
+                        <p style="color: #a0a0b0;">Cool, professional tone</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="description">
+            <h3>Direction 6: Cold Nebula</h3>
+            <p>Cool blue tones creating a professional, tech-focused feel. Subtle nebula background adds depth without distraction.</p>
+            <div class="features">
+                <span class="tag">Blue Tones</span>
+                <span class="tag">Professional</span>
+                <span class="tag">Nebula BG</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showDir(n) {
+            document.querySelectorAll('.direction').forEach(d => d.classList.remove('active'));
+            document.getElementById('dir' + n).classList.add('active');
+        }
+    </script>
+</body>
+</html>

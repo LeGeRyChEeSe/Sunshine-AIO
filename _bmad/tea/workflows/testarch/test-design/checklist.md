@@ -190,7 +190,7 @@
 - [ ] Prerequisites for testing start are clearly defined
 - [ ] Environment readiness included
 - [ ] Test data readiness included
-- [ ] Sprint 0 blocker resolution referenced
+- [ ] Pre-implementation blocker resolution referenced
 
 ### Exit Criteria
 
@@ -225,7 +225,7 @@
 - [ ] **Purpose statement** at top (serves as contract with Architecture team)
 - [ ] **Executive Summary** with scope, business context, architecture decisions, risk summary
 - [ ] **Quick Guide** section with three tiers:
-  - [ ] 🚨 BLOCKERS - Team Must Decide (Sprint 0 critical path items)
+  - [ ] 🚨 BLOCKERS - Team Must Decide (pre-implementation critical path items)
   - [ ] ⚠️ HIGH PRIORITY - Team Should Validate (recommendations for approval)
   - [ ] 📋 INFO ONLY - Solutions Provided (no decisions needed)
 - [ ] **Risk Assessment** section - **ACTIONABLE**
@@ -262,7 +262,7 @@
   - [ ] NO "Test Levels Strategy" section (unit/integration/E2E split belongs in QA doc only)
   - [ ] NO "NFR Testing Approach" section with detailed test procedures (belongs in QA doc only)
   - [ ] NO "Test Environment Requirements" section (belongs in QA doc only)
-  - [ ] NO "Recommendations for Sprint 0" section with test framework setup (belongs in QA doc only)
+  - [ ] NO "Recommendations for pre-implementation" section with test framework setup (belongs in QA doc only)
   - [ ] NO "Quality Gate Criteria" section (pass rates, coverage targets belong in QA doc only)
   - [ ] NO "Tool Selection" section (Playwright, k6, etc. belongs in QA doc only)
 
@@ -295,11 +295,11 @@
 - [ ] **QA Effort Estimate** section (QA effort ONLY)
   - [ ] Interval-based estimates (e.g., "~1-2 weeks" NOT "36 hours")
   - [ ] NO DevOps, Backend, Data Eng, Finance effort
-  - [ ] No per-sprint effort breakdowns in this section
-- [ ] **Sprint Planning Handoff** section (optional)
+  - [ ] No per-milestone effort breakdowns in this section
+- [ ] **Implementation Planning Handoff** section (optional)
   - [ ] Only include if implementation tasks must be scheduled
   - [ ] Owners assigned (QA/Dev/Platform/etc)
-  - [ ] Target sprint may be noted, but avoid detailed per-sprint breakdowns
+  - [ ] Target milestone may be noted, but avoid detailed per-milestone breakdowns
 - [ ] **Appendix A: Code Examples & Tagging**
 - [ ] **Appendix B: Knowledge Base References**
 
@@ -315,14 +315,14 @@
 - [ ] ❌ NO Follow-on Workflows section (BMAD commands self-explanatory)
 - [ ] ❌ NO Approval section
 - [ ] ❌ NO Infrastructure/DevOps/Finance effort tables (out of scope)
-- [ ] ❌ NO detailed sprint-by-sprint breakdown tables (use Sprint Planning Handoff if needed)
-- [ ] ❌ NO generic Next Steps section (use Sprint Planning Handoff if needed)
+- [ ] ❌ NO detailed milestone-by-milestone breakdown tables (use Implementation Planning Handoff if needed)
+- [ ] ❌ NO generic Next Steps section (use Implementation Planning Handoff if needed)
 
 ### Cross-Document Consistency
 
 - [ ] Both documents reference same risks by ID (R-001, R-002, etc.)
 - [ ] Both documents use consistent priority levels (P0, P1, P2, P3)
-- [ ] Both documents reference same Sprint 0 blockers
+- [ ] Both documents reference same pre-implementation blockers
 - [ ] No duplicate content (cross-reference instead)
 - [ ] Dates and authors match across documents
 - [ ] ADR and PRD references consistent
@@ -361,6 +361,16 @@
   - [ ] Actionable ASRs included in 🚨 or ⚠️ sections
   - [ ] FYI ASRs included in 📋 section or omitted if obvious
 
+## BMAD Handoff Validation (System-Level Mode Only)
+
+- [ ] Handoff document generated at `{test_artifacts}/test-design/{project_name}-handoff.md`
+- [ ] TEA Artifacts Inventory table populated with actual paths
+- [ ] Epic-Level Integration Guidance populated with P0/P1 risks
+- [ ] Story-Level Integration Guidance populated with critical test scenarios
+- [ ] Risk-to-Story Mapping table populated from risk register
+- [ ] Recommended workflow sequence is accurate
+- [ ] Phase transition quality gates are defined
+
 ## Completion Criteria
 
 **All must be true:**
@@ -372,6 +382,7 @@
 - [ ] All integration points verified
 - [ ] Output file(s) complete and well-formatted
 - [ ] **System-level mode:** Both documents validated (if applicable)
+- [ ] **System-level mode:** Handoff document validated (if applicable)
 - [ ] **Epic-level mode:** Single document validated (if applicable)
 - [ ] Team review scheduled (if required)
 

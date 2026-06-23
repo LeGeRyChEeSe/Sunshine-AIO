@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-test-review'
+inputDocuments: []
 ---
 
 # Test Quality Review: {test_filename}
@@ -289,11 +291,11 @@ See [tea-index.csv](../../../testarch/tea-index.csv) for complete knowledge base
 
 1. **{action_1}** - {description}
    - Priority: {P2 | P3}
-   - Target: {next_sprint | backlog}
+   - Target: {next_milestone | backlog}
 
 2. **{action_2}** - {description}
    - Priority: {P2 | P3}
-   - Target: {next_sprint | backlog}
+   - Target: {next_milestone | backlog}
 
 ### Re-Review Needed?
 

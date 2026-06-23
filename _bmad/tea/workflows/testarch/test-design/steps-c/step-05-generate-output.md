@@ -79,7 +79,34 @@ If any checklist criteria are missing, fix before completion.
 
 ---
 
-## 4. Completion Report
+## 4. Generate BMAD Handoff Document (System-Level Mode Only)
+
+**If this is a system-level test design** (not component/feature level):
+
+1. Copy `test-design-handoff-template.md` to `{test_artifacts}/test-design/{project_name}-handoff.md`
+2. Populate all sections from the test design output:
+   - Fill TEA Artifacts Inventory with actual paths
+   - Extract P0/P1 risks into Epic-Level guidance
+   - Map critical test scenarios to Story-Level guidance
+   - Build risk-to-story mapping table from risk register
+3. Save alongside the test design document
+
+> **Note**: The handoff document is designed for consumption by BMAD's `create-epics-and-stories` workflow. It is only generated for system-level test designs where epic/story decomposition is relevant.
+
+---
+
+## 5. Polish Output
+
+Before finalizing, review the complete output document for quality:
+
+1. **Remove duplication**: Progressive-append workflow may have created repeated sections — consolidate
+2. **Verify consistency**: Ensure terminology, risk scores, and references are consistent throughout
+3. **Check completeness**: All template sections should be populated or explicitly marked N/A
+4. **Format cleanup**: Ensure markdown formatting is clean (tables aligned, headers consistent, no orphaned references)
+
+---
+
+## 6. Completion Report
 
 Summarize:
 
@@ -90,7 +117,7 @@ Summarize:
 
 ---
 
-### 5. Save Progress
+### 7. Save Progress
 
 **Save this step's accumulated work to `{progressFile}`.**
 

@@ -36,3 +36,14 @@ dist/
 test_*.py
 *_test.py
 test_results*.md
+
+# Backup files
+*.bak
+
+# BMAD output and artifacts
+_bmad-output/test-artifacts/
+_bmad-output/planning-artifacts/
+
+# BMAD user-specific configs
+_bmad/**/agents/*.customize.yaml
+_bmad/**/teams/*.yaml.bak

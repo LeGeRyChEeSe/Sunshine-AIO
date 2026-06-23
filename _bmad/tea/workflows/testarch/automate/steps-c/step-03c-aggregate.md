@@ -9,7 +9,7 @@ nextStepFile: './step-04-validate-and-summarize.md'
 
 ## STEP GOAL
 
-Read outputs from parallel subprocesses (API + E2E test generation), aggregate results, and create supporting infrastructure (fixtures, helpers).
+Read outputs from parallel subprocesses (API + E2E and/or Backend test generation based on `{detected_stack}`), aggregate results, and create supporting infrastructure (fixtures, helpers).
 
 ---
 
@@ -46,25 +46,39 @@ Read outputs from parallel subprocesses (API + E2E test generation), aggregate r
 
 ### 1. Read Subprocess Outputs
 
-**Read API test subprocess output:**
+**Read API test subprocess output (always):**
 
 ```javascript
 const apiTestsPath = '/tmp/tea-automate-api-tests-{{timestamp}}.json';
 const apiTestsOutput = JSON.parse(fs.readFileSync(apiTestsPath, 'utf8'));
 ```
 
-**Read E2E test subprocess output:**
+**Read E2E test subprocess output (if {detected_stack} is `frontend` or `fullstack`):**
 
 ```javascript
-const e2eTestsPath = '/tmp/tea-automate-e2e-tests-{{timestamp}}.json';
-const e2eTestsOutput = JSON.parse(fs.readFileSync(e2eTestsPath, 'utf8'));
+let e2eTestsOutput = null;
+if (detected_stack === 'frontend' || detected_stack === 'fullstack') {
+  const e2eTestsPath = '/tmp/tea-automate-e2e-tests-{{timestamp}}.json';
+  e2eTestsOutput = JSON.parse(fs.readFileSync(e2eTestsPath, 'utf8'));
+}
 ```
 
-**Verify both subprocesses succeeded:**
+**Read Backend test subprocess output (if {detected_stack} is `backend` or `fullstack`):**
+
+```javascript
+let backendTestsOutput = null;
+if (detected_stack === 'backend' || detected_stack === 'fullstack') {
+  const backendTestsPath = '/tmp/tea-automate-backend-tests-{{timestamp}}.json';
+  backendTestsOutput = JSON.parse(fs.readFileSync(backendTestsPath, 'utf8'));
+}
+```
+
+**Verify all launched subprocesses succeeded:**
 
 - Check `apiTestsOutput.success === true`
-- Check `e2eTestsOutput.success === true`
-- If either failed, report error and stop (don't proceed)
+- If E2E was launched: check `e2eTestsOutput.success === true`
+- If Backend was launched: check `backendTestsOutput.success === true`
+- If any failed, report error and stop (don't proceed)
 
 ---
 
@@ -79,23 +93,40 @@ apiTestsOutput.tests.forEach((test) => {
 });
 ```
 
-**Write E2E test files:**
+**Write E2E test files (if {detected_stack} is `frontend` or `fullstack`):**
 
 ```javascript
-e2eTestsOutput.tests.forEach((test) => {
-  fs.writeFileSync(test.file, test.content, 'utf8');
-  console.log(`✅ Created: ${test.file}`);
-});
+if (e2eTestsOutput) {
+  e2eTestsOutput.tests.forEach((test) => {
+    fs.writeFileSync(test.file, test.content, 'utf8');
+    console.log(`✅ Created: ${test.file}`);
+  });
+}
+```
+
+**Write Backend test files (if {detected_stack} is `backend` or `fullstack`):**
+
+```javascript
+if (backendTestsOutput) {
+  backendTestsOutput.testsGenerated.forEach((test) => {
+    fs.writeFileSync(test.file, test.content, 'utf8');
+    console.log(`✅ Created: ${test.file}`);
+  });
+}
 ```
 
 ---
 
 ### 3. Aggregate Fixture Needs
 
-**Collect all fixture needs from both subprocesses:**
+**Collect all fixture needs from all launched subprocesses:**
 
 ```javascript
-const allFixtureNeeds = [...apiTestsOutput.fixture_needs, ...e2eTestsOutput.fixture_needs];
+const allFixtureNeeds = [
+  ...apiTestsOutput.fixture_needs,
+  ...(e2eTestsOutput ? e2eTestsOutput.fixture_needs : []),
+  ...(backendTestsOutput ? backendTestsOutput.coverageSummary?.fixtureNeeds || [] : []),
+];
 
 // Remove duplicates
 const uniqueFixtures = [...new Set(allFixtureNeeds)];
@@ -190,28 +221,47 @@ export const waitForApiResponse = async (page: Page, urlPattern: string) => {
 
 ### 5. Calculate Summary Statistics
 
-**Aggregate test counts:**
+**Aggregate test counts (based on `{detected_stack}`):**
 
 ```javascript
+const e2eCount = e2eTestsOutput ? e2eTestsOutput.test_count : 0;
+const backendCount = backendTestsOutput ? (backendTestsOutput.coverageSummary?.totalTests ?? 0) : 0;
+
 const summary = {
-  total_tests: apiTestsOutput.test_count + e2eTestsOutput.test_count,
+  detected_stack: '{detected_stack}',
+  total_tests: apiTestsOutput.test_count + e2eCount + backendCount,
   api_tests: apiTestsOutput.test_count,
-  e2e_tests: e2eTestsOutput.test_count,
+  e2e_tests: e2eCount,
+  backend_tests: backendCount,
   fixtures_created: uniqueFixtures.length,
   api_test_files: apiTestsOutput.tests.length,
-  e2e_test_files: e2eTestsOutput.tests.length,
+  e2e_test_files: e2eTestsOutput ? e2eTestsOutput.tests.length : 0,
+  backend_test_files: backendTestsOutput ? backendTestsOutput.testsGenerated.length : 0,
   priority_coverage: {
-    P0: /* sum P0 tests from both */,
-    P1: /* sum P1 tests from both */,
-    P2: /* sum P2 tests from both */,
-    P3: /* sum P3 tests from both */
+    P0:
+      (apiTestsOutput.priority_coverage?.P0 ?? 0) +
+      (e2eTestsOutput?.priority_coverage?.P0 ?? 0) +
+      (backendTestsOutput?.testsGenerated?.reduce((sum, t) => sum + (t.priority_coverage?.P0 ?? 0), 0) ?? 0),
+    P1:
+      (apiTestsOutput.priority_coverage?.P1 ?? 0) +
+      (e2eTestsOutput?.priority_coverage?.P1 ?? 0) +
+      (backendTestsOutput?.testsGenerated?.reduce((sum, t) => sum + (t.priority_coverage?.P1 ?? 0), 0) ?? 0),
+    P2:
+      (apiTestsOutput.priority_coverage?.P2 ?? 0) +
+      (e2eTestsOutput?.priority_coverage?.P2 ?? 0) +
+      (backendTestsOutput?.testsGenerated?.reduce((sum, t) => sum + (t.priority_coverage?.P2 ?? 0), 0) ?? 0),
+    P3:
+      (apiTestsOutput.priority_coverage?.P3 ?? 0) +
+      (e2eTestsOutput?.priority_coverage?.P3 ?? 0) +
+      (backendTestsOutput?.testsGenerated?.reduce((sum, t) => sum + (t.priority_coverage?.P3 ?? 0), 0) ?? 0),
   },
   knowledge_fragments_used: [
     ...apiTestsOutput.knowledge_fragments_used,
-    ...e2eTestsOutput.knowledge_fragments_used
+    ...(e2eTestsOutput ? e2eTestsOutput.knowledge_fragments_used : []),
+    ...(backendTestsOutput ? backendTestsOutput.knowledge_fragments_used || [] : []),
   ],
-  subprocess_execution: 'PARALLEL (API + E2E)',
-  performance_gain: '~50% faster than sequential'
+  subprocess_execution: `PARALLEL (based on ${detected_stack})`,
+  performance_gain: '~40-70% faster than sequential',
 };
 ```
 
@@ -230,7 +280,8 @@ fs.writeFileSync('/tmp/tea-automate-summary-{{timestamp}}.json', JSON.stringify(
 
 ```javascript
 fs.unlinkSync(apiTestsPath);
-fs.unlinkSync(e2eTestsPath);
+if (e2eTestsOutput) fs.unlinkSync('/tmp/tea-automate-e2e-tests-{{timestamp}}.json');
+if (backendTestsOutput) fs.unlinkSync('/tmp/tea-automate-backend-tests-{{timestamp}}.json');
 console.log('✅ Subprocess temp files cleaned up');
 ```
 
@@ -244,9 +295,11 @@ Display to user:
 ✅ Test Generation Complete (Parallel Execution)
 
 📊 Summary:
+- Stack Type: {detected_stack}
 - Total Tests: {total_tests}
   - API Tests: {api_tests} ({api_test_files} files)
-  - E2E Tests: {e2e_tests} ({e2e_test_files} files)
+  - E2E Tests: {e2e_tests} ({e2e_test_files} files)         [if frontend/fullstack]
+  - Backend Tests: {backend_tests} ({backend_test_files} files)  [if backend/fullstack]
 - Fixtures Created: {fixtures_created}
 - Priority Coverage:
   - P0 (Critical): {P0} tests
@@ -254,15 +307,14 @@ Display to user:
   - P2 (Medium): {P2} tests
   - P3 (Low): {P3} tests
 
-🚀 Performance: Parallel execution ~50% faster than sequential
+🚀 Performance: Parallel execution ~40-70% faster than sequential
 
 📂 Generated Files:
-- tests/api/[feature].spec.ts
-- tests/e2e/[feature].spec.ts
-- tests/fixtures/auth.ts
-- tests/fixtures/data-factories.ts
-- tests/fixtures/network-mocks.ts
-- tests/fixtures/helpers.ts
+- tests/api/[feature].spec.ts                                [always]
+- tests/e2e/[feature].spec.ts                                [if frontend/fullstack]
+- tests/unit/[feature].test.*                                 [if backend/fullstack]
+- tests/integration/[feature].test.*                          [if backend/fullstack]
+- tests/fixtures/ or tests/support/                           [shared infrastructure]
 
 ✅ Ready for validation (Step 4)
 ```
@@ -273,7 +325,7 @@ Display to user:
 
 Proceed to Step 4 when:
 
-- ✅ All test files written to disk (API + E2E)
+- ✅ All test files written to disk (API + E2E and/or Backend, based on `{detected_stack}`)
 - ✅ All fixtures and helpers created
 - ✅ Summary statistics calculated and saved
 - ✅ Output displayed to user
@@ -310,14 +362,14 @@ Load next step: `{nextStepFile}`
 
 ### ✅ SUCCESS:
 
-- Both subprocesses succeeded
+- All launched subprocesses succeeded (based on `{detected_stack}`)
 - All test files written to disk
 - Fixtures generated based on subprocess needs
 - Summary complete and accurate
 
 ### ❌ SYSTEM FAILURE:
 
-- One or both subprocesses failed
+- One or more subprocesses failed
 - Test files not written to disk
 - Fixtures missing or incomplete
 - Summary missing or inaccurate

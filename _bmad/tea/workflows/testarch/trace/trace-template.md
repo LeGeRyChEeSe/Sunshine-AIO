@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-trace'
+inputDocuments: []
 ---
 
 # Traceability Matrix & Gate Decision - Story {STORY_ID}
@@ -230,7 +232,7 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 1. **{ACTION_1}** - {DESCRIPTION}
 2. **{ACTION_2}** - {DESCRIPTION}
 
-#### Short-term Actions (This Sprint)
+#### Short-term Actions (This Milestone)
 
 1. **{ACTION_1}** - {DESCRIPTION}
 2. **{ACTION_2}** - {DESCRIPTION}
@@ -248,7 +250,7 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 1. **Add P1 Password Reset Tests** - Implement `1.3-API-001` for email service integration and `1.3-E2E-004` for error path validation. P1 coverage currently at 80%, target is 90%.
 2. **Optimize Slow E2E Test** - Refactor `1.3-E2E-001` to use faster fixture setup. Currently 145s, target is <90s.
 
-**Short-term Actions (This Sprint)**
+**Short-term Actions (This Milestone)**
 
 1. **Enhance P2 Coverage** - Add E2E validation for session timeout (`1.3-E2E-005`). Currently UNIT-ONLY coverage.
 2. **Split Large Test File** - Break `1.3-UNIT-005` (320 lines) into multiple focused test files (<300 lines each).
@@ -439,7 +441,7 @@ List unresolved P1/P2 issues that don't block release but should be tracked:
    - **Impact**: Low | Medium | High
    - **Risk Score**: {probability × impact}
    - **Mitigation**: {workaround or monitoring plan}
-   - **Remediation**: {fix in next sprint/release}
+   - **Remediation**: {fix in next milestone/release}
 
 **Overall Residual Risk**: {LOW | MEDIUM | HIGH}
 
@@ -526,7 +528,7 @@ Top blockers requiring immediate attention:
 2. **Create Remediation Backlog**
    - Create story: "{fix_title_1}" (Priority: {priority})
    - Create story: "{fix_title_2}" (Priority: {priority})
-   - Target sprint: {next_sprint}
+   - Target milestone: {next_milestone}
 
 3. **Post-Deployment Actions**
    - Monitor {specific_areas} closely for {time_period}
@@ -583,7 +585,7 @@ Top blockers requiring immediate attention:
 2. {action_2}
 3. {action_3}
 
-**Follow-up Actions** (next sprint/release):
+**Follow-up Actions** (next milestone/release):
 
 1. {action_1}
 2. {action_2}

@@ -25,6 +25,7 @@ template: "{installed_path}/test-design-template.md"
 variables:
   design_level: "full" # full, targeted, minimal - scope of design effort
   mode: "auto-detect" # auto-detect (default), system-level, epic-level
+  test_stack_type: "auto" # auto, frontend, backend, fullstack - from config or auto-detected
 
 # Output configuration
 # Note: Actual output file determined dynamically based on mode detection
@@ -38,10 +39,16 @@ outputs:
     audience: architecture
 
   - id: test-design-qa
-    description: "System-level test design: Test execution recipe, coverage plan, Sprint 0 setup for QA team"
+    description: "System-level test design: Test execution recipe, coverage plan, pre-implementation setup for QA team"
     path: "{test_artifacts}/test-design-qa.md"
     mode: system-level
     audience: qa
+
+  - id: test-design-handoff
+    description: "TEA → BMAD handoff document: Bridges test design outputs with epic/story decomposition"
+    path: "{test_artifacts}/test-design/{project_name}-handoff.md"
+    mode: system-level
+    audience: bmad-integration
 
   # Epic-Level Mode (Phase 4) - ONE document (unchanged)
   - id: epic-level

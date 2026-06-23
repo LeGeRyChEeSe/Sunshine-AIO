@@ -36,7 +36,7 @@ Determine review scope, load required knowledge fragments, and gather related ar
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-## 1. Determine Scope
+## 1. Determine Scope and Stack
 
 Use `review_scope`:
 
@@ -46,7 +46,38 @@ Use `review_scope`:
 
 If unclear, ask the user.
 
+**Stack Detection** (for context-aware loading):
+
+Read `test_stack_type` from `{config_source}`. If `"auto"` or not configured, infer `{detected_stack}` by scanning `{project-root}`:
+
+- **Frontend indicators**: `playwright.config.*`, `cypress.config.*`, `package.json` with react/vue/angular
+- **Backend indicators**: `pyproject.toml`, `pom.xml`/`build.gradle`, `go.mod`, `*.csproj`, `Gemfile`, `Cargo.toml`
+- **Both present** → `fullstack`; only frontend → `frontend`; only backend → `backend`
+- Explicit `test_stack_type` overrides auto-detection
+
 ---
+
+### Tiered Knowledge Loading
+
+Load fragments based on their `tier` classification in `tea-index.csv`:
+
+1. **Core tier** (always load): Foundational fragments required for this workflow
+2. **Extended tier** (load on-demand): Load when deeper analysis is needed or when the user's context requires it
+3. **Specialized tier** (load only when relevant): Load only when the specific use case matches (e.g., contract-testing only for microservices, email-auth only for email flows)
+
+> **Context Efficiency**: Loading only core fragments reduces context usage by 40-50% compared to loading all fragments.
+
+### Playwright Utils Loading Profiles
+
+**If `tea_use_playwright_utils` is enabled**, select the appropriate loading profile:
+
+- **API-only profile** (when `{detected_stack}` is `backend` or no `page.goto`/`page.locator` found in test files):
+  Load: `overview`, `api-request`, `auth-session`, `recurse` (~1,800 lines)
+
+- **Full UI+API profile** (when `{detected_stack}` is `frontend`/`fullstack` or browser tests detected):
+  Load: all Playwright Utils core fragments (~4,500 lines)
+
+**Detection**: Scan `{test_dir}` for files containing `page.goto` or `page.locator`. If none found, use API-only profile.
 
 ## 2. Load Knowledge Base
 
@@ -121,6 +152,8 @@ Coverage mapping and coverage gates are out of scope in `test-review`. Route tho
   - Set `lastStep: 'step-01-load-context'`
   - Set `lastSaved: '{date}'`
   - Append this step's output to the appropriate section of the document.
+
+**Update `inputDocuments`**: Set `inputDocuments` in the output template frontmatter to the list of artifact paths loaded in this step (e.g., knowledge fragments, test design documents, configuration files).
 
 Load next step: `{nextStepFile}`
 
