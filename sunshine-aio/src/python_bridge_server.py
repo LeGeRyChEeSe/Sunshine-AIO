@@ -51,8 +51,31 @@ def _emit(response: Dict[str, Any]) -> None:
     """Write one response line and flush immediately. Flushing matters:
     the Electron side parses stdout line-by-line; if we buffer stdout the
     parent would sit waiting forever for a response that has already been
-    computed."""
-    sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+    computed.
+
+    Per-response size cap (~256 KiB serialized). A compromised Python
+    script that returns a multi-megabyte string would not be caught
+    by the Electron-side stdout buffer cap until the OS has already
+    buffered the data; capping here refuses the emission before it
+    leaves the process so the parent never has to recover from a
+    malformed envelope."""
+    MAX_RESPONSE_BYTES = 256 * 1024
+    serialized = json.dumps(response, separators=(",", ":"))
+    if len(serialized.encode("utf-8")) > MAX_RESPONSE_BYTES:
+        # Truncate the body to a safe placeholder so the protocol
+        # envelope still parses on the parent side. The parent logs
+        # the response shape and treats unknown result values
+        # gracefully; a malformed envelope (write failure) would be
+        # worse because the parent would block on a parse error.
+        truncated_response = {
+            "ok": True,
+            "result": "[truncated: response exceeded 256 KiB cap]",
+        }
+        if "id" in response:
+            truncated_response["id"] = response["id"]
+        sys.stdout.write(json.dumps(truncated_response, separators=(",", ":")) + "\n")
+    else:
+        sys.stdout.write(serialized + "\n")
     sys.stdout.flush()
 
 

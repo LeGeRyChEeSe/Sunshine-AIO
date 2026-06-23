@@ -51,6 +51,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { safeLog } from './logger.js';
 import { restoreMainWindow } from './windowFocus.js';
+import { redactSecrets } from './redaction.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -255,8 +256,11 @@ export class NotificationManager {
       // fallback here: this module is ESM, mixing CommonJS requires
       // makes the bundler behaviour harder to predict, and tray.js
       // already follows the same "deps injected by caller" pattern.
-      // In tests, the missing-deps path means we degrade gracefully
-      // (no notifications will be shown, but no crash either).
+      // We log at warn AND force `_enabled = false` so the rest of
+      // the manager is in a clearly-disabled state — without this,
+      // IPC handlers would happily call notify* methods on a manager
+      // that always returns false, silently masking the real
+      // misconfiguration from the operator.
       safeLog(
         logger,
         'warn',
@@ -268,6 +272,8 @@ export class NotificationManager {
     this._getMainWindow = getMainWindow;
     this._iconPath = resolveIconPath(iconPath, logger);
     this._logger = logger || null;
+    // Normalize to a boolean at construction time so downstream
+    // checks (isEnabled, _show) never have to think about truthiness.
     this._enabled = enabled !== false;
     this._NotificationCtor = resolveNotificationCtor(deps);
     this._supported = resolveIsSupported(deps, this._NotificationCtor);
@@ -293,7 +299,9 @@ export class NotificationManager {
   }
 
   isEnabled() {
-    return Boolean(this._enabled);
+    // `_enabled` is normalized to a boolean in the constructor and
+    // `setEnabled` so no runtime coercion is needed.
+    return this._enabled;
   }
 
   /**
@@ -341,6 +349,13 @@ export class NotificationManager {
    * @returns {boolean} true if a toast was shown, false otherwise.
    */
   notifyError(message, opts = {}) {
+    // We deliberately fall back to the static errorTitle when the
+    // caller did not supply one — keeping the title static limits the
+    // information-disclosure surface. A caller-supplied title is
+    // still passed through so the IPC layer can override it for
+    // known-safe static titles (e.g. "Sunshine AIO — Protocol
+    // error"), but the body is always redacted in `_show` so a
+    // compromised renderer cannot surface secrets via this channel.
     const title = toTrimmedString(opts.title) || STRINGS.errorTitle;
     return this._show({
       type: 'error',
@@ -372,35 +387,127 @@ export class NotificationManager {
       this._log('warn', 'notification.disposed', { type, title });
       return false;
     }
+    // Redact secrets from renderer-supplied fields BEFORE they hit
+    // either the file logger OR the OS toast surface. Windows
+    // persists toast bodies in notification history (enabled by
+    // default on Win10/11), so an unredacted password value would
+    // sit in the notification center until manually cleared. The
+    // OS toast receives the redacted values so the audit trail and
+    // the user-visible surface stay in lockstep.
+    const safeTitle = typeof title === 'string' ? redactSecrets(title) : title;
+    const safeBody = typeof body === 'string' ? redactSecrets(body) : body;
+    const redactedTitle = safeTitle;
+    const redactedBody = safeBody;
     // Always log the request — even when disabled or unsupported —
     // so the audit trail captures every attempted emission.
-    this._log('info', `notification.${type}.request`, { ...meta, title, body });
+    this._log('info', `notification.${type}.request`, {
+      ...meta,
+      title: redactedTitle,
+      body: redactedBody,
+    });
     if (!this._enabled) {
-      this._log('debug', `notification.${type}.skipped_disabled`, { title });
+      this._log('debug', `notification.${type}.skipped_disabled`, {
+        title: redactedTitle,
+      });
       return false;
     }
     if (!this.isSupported()) {
-      this._log('debug', `notification.${type}.skipped_unsupported`, { title });
+      this._log('debug', `notification.${type}.skipped_unsupported`, {
+        title: redactedTitle,
+      });
       return false;
     }
     let notification;
+    let closeTimer = null;
     try {
       notification = new this._NotificationCtor({
-        title,
-        body,
+        // Use the redacted values so the OS toast surface receives
+        // the same sanitized strings that land in the file logger.
+        // Without this, Windows notification history would persist
+        // the unredacted body.
+        title: safeTitle,
+        body: safeBody,
         silent: silent === true,
         icon: this._iconPath || undefined,
         timeoutType: 'default',
       });
-      // Some platforms (notably Windows) respect a `timeoutType: 'never'`
-      // we don't set by default; users can still dismiss the toast.
-      try {
-        if (DEFAULT_TIMEOUT_MS && typeof notification.show === 'function') {
+      // Schedule the close timer ONLY when show() is available AND
+      // the timeout is positive. We capture the timer id so the
+      // click/close handlers can clearTimeout it instead of letting
+      // the closure fire on an already-dismissed notification (and
+      // so the timer does not leak briefly while the user has the
+      // toast pinned open).
+      const clearCloseTimer = () => {
+        if (closeTimer !== null) {
+          try {
+            clearTimeout(closeTimer);
+          } catch {
+            /* ignore */
+          }
+          closeTimer = null;
+        }
+      };
+      if (typeof notification.on === 'function') {
+        // The handlers below fire on the OS event loop after the
+        // synchronous `_show` returns. If `dispose()` runs in the
+        // gap between show() and the user clicking, the click
+        // handler would otherwise call methods on a destroyed
+        // BrowserWindow and throw. The constructor's try/catch does
+        // NOT cover async callbacks, so each handler needs its own
+        // guard + try/catch.
+        notification.on('click', () => {
+          try {
+            if (this._disposed) return;
+            this._log('info', `notification.${type}.click`, { title: redactedTitle });
+            clearCloseTimer();
+            this._focusApp();
+          } catch (handlerErr) {
+            // Swallow so the OS does not see an unhandled exception
+            // from a renderer-side listener. Log for diagnostics.
+            safeLog(this._logger, 'warn', `notification.${type}.click.handler_error`, {
+              message: handlerErr && handlerErr.message ? handlerErr.message : String(handlerErr),
+            });
+          }
+        });
+        notification.on('close', () => {
+          try {
+            if (this._disposed) return;
+            this._log('debug', `notification.${type}.close`, { title: redactedTitle });
+            clearCloseTimer();
+          } catch (handlerErr) {
+            safeLog(this._logger, 'warn', `notification.${type}.close.handler_error`, {
+              message: handlerErr && handlerErr.message ? handlerErr.message : String(handlerErr),
+            });
+          }
+        });
+        notification.on('failed', (_event, error) => {
+          try {
+            if (this._disposed) return;
+            this._log('warn', `notification.${type}.failed`, {
+              title: redactedTitle,
+              message: error && error.message ? error.message : String(error),
+            });
+            clearCloseTimer();
+          } catch (handlerErr) {
+            safeLog(this._logger, 'warn', `notification.${type}.failed.handler_error`, {
+              message: handlerErr && handlerErr.message ? handlerErr.message : String(handlerErr),
+            });
+          }
+        });
+      }
+      if (typeof notification.show === 'function') {
+        notification.show();
+        // Schedule the auto-close AFTER show() so the timer is only
+        // armed when the notification actually shows. Without this,
+        // a stubbed `show` that throws synchronously would still
+        // leak a queued timer.
+        if (DEFAULT_TIMEOUT_MS > 0) {
           // The Electron API has no direct timeout setter; instead
           // we schedule a close. If the platform supports the
           // `close` event we use that, otherwise the OS default
           // takes over.
-          setTimeout(() => {
+          closeTimer = setTimeout(() => {
+            closeTimer = null;
             try {
               if (notification && typeof notification.close === 'function') {
                 notification.close();
@@ -408,34 +515,17 @@ export class NotificationManager {
             } catch {
               /* already closed */
             }
-          }, DEFAULT_TIMEOUT_MS).unref?.();
+          }, DEFAULT_TIMEOUT_MS);
+          if (typeof closeTimer.unref === 'function') {
+            closeTimer.unref();
+          }
         }
-      } catch {
-        /* ignore — notification may have been closed already */
       }
-      if (typeof notification.on === 'function') {
-        notification.on('click', () => {
-          this._log('info', `notification.${type}.click`, { title });
-          this._focusApp();
-        });
-        notification.on('close', () => {
-          this._log('debug', `notification.${type}.close`, { title });
-        });
-        notification.on('failed', (_event, error) => {
-          this._log('warn', `notification.${type}.failed`, {
-            title,
-            message: error && error.message ? error.message : String(error),
-          });
-        });
-      }
-      if (typeof notification.show === 'function') {
-        notification.show();
-      }
-      this._log('info', `notification.${type}.shown`, { ...meta, title });
+      this._log('info', `notification.${type}.shown`, { ...meta, title: redactedTitle });
       return true;
     } catch (err) {
       this._log('error', `notification.${type}.error`, {
-        title,
+        title: redactedTitle,
         message: err && err.message ? err.message : String(err),
       });
       return false;
@@ -468,6 +558,17 @@ let _singleton = null;
  */
 export const initNotificationManager = (deps = {}) => {
   if (_singleton) return _singleton;
+  // Fail fast on bad inputs. The constructor destructures `deps`,
+  // so a Map or class instance would silently produce undefined
+  // getMainWindow and then throw a confusing TypeError from inside
+  // the constructor. Rejecting early with a clear message is
+  // strictly better.
+  if (deps !== null && deps !== undefined && typeof deps !== 'object') {
+    throw new TypeError(`initNotificationManager: deps must be a plain object, got ${typeof deps}`);
+  }
+  if (Array.isArray(deps)) {
+    throw new TypeError('initNotificationManager: deps must be a plain object, got array');
+  }
   _singleton = new NotificationManager(deps);
   return _singleton;
 };

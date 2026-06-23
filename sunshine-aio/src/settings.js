@@ -109,6 +109,14 @@ export const loadSettings = (deps = {}) => {
  * forward-compat. Unknown keys on disk are preserved as-is in the
  * written JSON; the in-memory return is normalized.
  *
+ * Unknown keys IN THE INPUT are dropped (whitelisted to
+ * DEFAULTS_BY_KEY). This is a security control: a future story that
+ * exposes a broad 'settings:set' channel could otherwise pollute
+ * the JSON file with attacker-controlled keys that persist on disk
+ * indefinitely. Filtering here means the file only ever contains
+ * keys this binary understands, while still preserving any unknown
+ * keys that already live on disk from older versions.
+ *
  * Returns the persisted (normalized) record on success, `null` on
  * failure.
  */
@@ -118,12 +126,27 @@ export const saveSettings = (settings, deps = {}) => {
   }
   const filePath = deps.filePath || defaultSettingsPath(deps.app || app);
   const logger = deps.logger;
+  // Whitelist: drop any keys not in DEFAULTS_BY_KEY so a future IPC
+  // handler that forwards a renderer-supplied object cannot write
+  // arbitrary keys to the on-disk JSON.
+  const safeSettings = {};
+  const droppedKeys = [];
+  for (const key of Object.keys(settings)) {
+    if (key in DEFAULTS_BY_KEY) {
+      safeSettings[key] = settings[key];
+    } else {
+      droppedKeys.push(key);
+    }
+  }
+  if (droppedKeys.length > 0 && logger && typeof logger.warn === 'function') {
+    logger.warn('saveSettings: ignored unknown keys', { droppedKeys });
+  }
   // Merge onto the RAW on-disk record so we do not erase keys this
   // binary does not know about. If the file is missing or unreadable
   // we start from an empty object — defaults are filled in by the
   // normalize step.
   const rawCurrent = readRawSettings(filePath) || {};
-  const rawNext = { ...rawCurrent, ...settings };
+  const rawNext = { ...rawCurrent, ...safeSettings };
   const next = normalize(rawNext);
   try {
     const dir = path.dirname(filePath);

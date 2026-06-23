@@ -43,6 +43,13 @@ const isChannelAllowed = (channel) => {
 
 const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 
+// Maximum size (in characters) of any single payload forwarded into
+// the renderer through `on()`. Mirrors the 64 KiB cap applied to
+// `log:write` in main.js so a compromised main process (or a future
+// bug that broadcasts oversized payloads to whitelisted channels)
+// cannot pin the renderer heap with a multi-megabyte blob.
+const MAX_ON_PAYLOAD_CHARS = 64 * 1024;
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -70,10 +77,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // resources. The check is intentionally an isDestroyed() guard on
     // the sender — a live-but-disconnected sender is still safe to
     // forward to; a destroyed one is not.
+    //
+    // We also cap the serialized size of each argument before
+    // forwarding it to the callback so an over-sized push (or a
+    // compromised main process) cannot pin the renderer heap with a
+    // giant blob. Strings are length-checked directly; objects are
+    // JSON-serialized once to bound their serialized shape.
+    const capArg = (arg) => {
+      if (typeof arg === 'string') {
+        if (arg.length > MAX_ON_PAYLOAD_CHARS) {
+          return undefined;
+        }
+        return arg;
+      }
+      if (arg !== null && typeof arg === 'object') {
+        try {
+          const serialized = JSON.stringify(arg);
+          if (serialized && serialized.length > MAX_ON_PAYLOAD_CHARS) {
+            return undefined;
+          }
+        } catch {
+          return undefined;
+        }
+      }
+      return arg;
+    };
     const subscription = (event, ...args) => {
       const senderIsMain = event.sender && !event.sender.isDestroyed();
       if (senderIsMain) {
-        callback(...args);
+        callback(...args.map(capArg));
       }
     };
     ipcRenderer.on(channel, subscription);

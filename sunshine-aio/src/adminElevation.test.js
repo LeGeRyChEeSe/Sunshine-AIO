@@ -306,8 +306,14 @@ describe('requestAdminElevation', () => {
     expect(psCommand).not.toContain('/high');
     expect(psCommand).not.toContain('cmd.exe');
     // Spawn must be detached + hidden so the elevated child survives
-    // parent shutdown and does not pop a console window.
-    expect(opts).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
+    // parent shutdown and does not pop a console window. Stdio is
+    // piped (NOT 'ignore') so spawn errors are surfaced to the
+    // logger — see the contract change in Issue 11.
+    expect(opts).toMatchObject({
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
   });
 
   it('passes handshakeArgs as a separate array element to Start-Process', async () => {

@@ -182,7 +182,11 @@ describe('NotificationManager', () => {
       getMainWindow: () => {},
       electronDeps: electronMock.deps,
     });
-    const longMsg = 'x'.repeat(500);
+    // Use a sentence-like body (spaces + punctuation) so the long-
+    // base64 redaction pattern does NOT fire. The redaction pass
+    // (Issue 19 fix) redacts long base64url blobs to `[redacted]`,
+    // which would interfere with this truncation assertion.
+    const longMsg = `An unexpected error occurred while processing your request. ${'word '.repeat(80)}`;
     mgr.notifyError(longMsg);
     const opts = electronMock.constructors[0].opts;
     expect(opts.body.length).toBeLessThanOrEqual(200);

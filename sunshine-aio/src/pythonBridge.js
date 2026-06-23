@@ -36,10 +36,17 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 import { createDefaultLogger } from './logger.js';
+import { redactSecrets } from './redaction.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_EXIT_GRACE_MS = 2_000;
 const DEFAULT_READY_TIMEOUT_MS = 5_000;
+// Maximum size of a single stderr line we will mirror to the file
+// logger. Lines longer than this are truncated so a chatty /
+// compromised Python child cannot flood the log with megabytes of
+// garbage. The cap is intentionally smaller than the stdout buffer
+// cap because stderr lines are user-facing diagnostic noise.
+const MAX_STDERR_LINE_BYTES = 1024;
 // Maximum size of the stdout line buffer. A misbehaving/compromised
 // Python child that emits N bytes without a newline could otherwise
 // grow _stdoutBuffer without bound until V8 OOMs. 1 MiB is comfortably
@@ -389,9 +396,30 @@ export class PythonBridge extends EventEmitter {
 
     let proc;
     try {
+      // Harden the child environment:
+      //   - cwd: pin to the script's directory so the Python child
+      //     does NOT inherit the Electron process's cwd. A
+      //     maliciously-launched Electron (or a buggy cwd) cannot
+      //     redirect the child's relative imports / scripts.
+      //   - shell: false (default) — make it explicit so a future
+      //     refactor that lets scriptPath come from user-controlled
+      //     input cannot lead to script confusion.
+      //   - env: explicit override that pins PYTHONIOENCODING so
+      //     locale drift cannot turn stdout bytes into garbage, and
+      //     narrows the inherited env to process.env (not the
+      //     broader Electron-injected globals) so a tampered PATH
+      //     or PYTHONPATH cannot redirect the Python child into
+      //     loading attacker modules.
       proc = this.spawnFn(command, [this.scriptPath], {
+        cwd: path.dirname(this.scriptPath),
+        shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUNBUFFERED: '1',
+        },
       });
     } catch (err) {
       this._failReady(err);
@@ -555,7 +583,19 @@ export class PythonBridge extends EventEmitter {
     if (this._stderrBuffer.length > 16 * 1024) {
       this._stderrBuffer = this._stderrBuffer.slice(-16 * 1024);
     }
-    this.logger.warn('Python stderr', { chunk: chunk.trim() });
+    // Truncate the per-chunk line so a single 10 MiB stderr line
+    // cannot flood the log file. Then redact secrets so a
+    // compromised Python child cannot smuggle credentials into
+    // `logs/` via stderr. The redactor is best-effort — strings that
+    // do not match a known credential pattern are passed through
+    // unchanged.
+    const trimmed = chunk.trim();
+    const capped =
+      trimmed.length > MAX_STDERR_LINE_BYTES
+        ? `${trimmed.slice(0, MAX_STDERR_LINE_BYTES)}...[truncated]`
+        : trimmed;
+    const redacted = typeof capped === 'string' ? redactSecrets(capped) : capped;
+    this.logger.warn('Python stderr', { chunk: redacted });
   }
 
   /**

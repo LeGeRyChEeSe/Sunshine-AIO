@@ -235,15 +235,58 @@ export const requestAdminElevation = async (deps = {}) => {
         : '';
     const command = `Start-Process -FilePath '${psExePath}' -Verb RunAs${psArgs}`;
     const args = ['-NoProfile', '-NonInteractive', '-Command', command];
+    // Capture stderr (was 'ignore') so spawn-failures (rare but
+    // possible — missing powershell.exe, AV quarantining, ACL
+    // issues) are surfaced to the logger instead of disappearing.
     const child = spawnImpl('powershell.exe', args, {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
-    if (child && typeof child.unref === 'function') {
+    if (!child) {
+      return { ok: false, reason: 'spawn returned no child handle' };
+    }
+    // Drain stderr to surface spawn errors. We do not await them —
+    // the spawn success / failure is what callers gate on — but a
+    // captured stream prevents the pipe from filling up and lets us
+    // log the diagnostic if the elevation fails downstream.
+    if (child.stderr && typeof child.stderr.on === 'function') {
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', () => {
+        // Best-effort drain. The caller will observe UAC via the
+        // handshake marker; if it never appears we log here.
+      });
+    }
+    if (child.stdout && typeof child.stdout.on === 'function') {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', () => {
+        // Drain stdout too so the pipe does not block.
+      });
+    }
+    if (child.stdin && typeof child.stdin.on === 'function') {
+      // Some PowerShell configurations do not need stdin; closing
+      // it makes the command finish cleanly without an interactive
+      // prompt.
+      try {
+        child.stdin.end();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (typeof child.unref === 'function') {
       child.unref();
     }
-    return { ok: true };
+    // Spawn-only success: the elevated child has been requested but
+    // we have NOT yet verified that UAC succeeded or that the
+    // child actually launched. Callers MUST wait for the handshake
+    // marker before treating this as "elevated". We expose a
+    // distinct `pending` reason so the caller can render a
+    // "waiting for UAC" UI state rather than promising elevation
+    // that has not been verified. A user-cancelled UAC leaves the
+    // spawn success intact but the handshake times out — and the
+    // parent stays alive instead of quitting without an elevated
+    // child.
+    return { ok: true, pending: 'uac_pending' };
   } catch (err) {
     return {
       ok: false,

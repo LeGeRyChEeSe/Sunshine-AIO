@@ -155,8 +155,13 @@ const setPythonStatus = (status, message) => {
 
 const pingPythonBackend = async () => {
   if (!window.electronAPI || typeof window.electronAPI.pythonPing !== 'function') {
-    // Running in a context without the bridge (unit tests, SSR). Skip
-    // silently rather than logging an error that the user cannot act on.
+    // Running in a context without the bridge (unit tests, SSR). The
+    // user should still see an actionable status — otherwise the
+    // "Initializing…" pending state would persist forever and they
+    // would have no way to tell whether the bridge was missing vs
+    // merely slow.
+    setPythonStatus('error', 'Python backend bridge unavailable');
+    reportError('warn', 'Python backend bridge unavailable on electronAPI', null);
     return;
   }
   setPythonStatus('pending', 'Contacting Python backend…');
@@ -233,7 +238,22 @@ const initSettingsUI = async () => {
     // Persist on change. We do NOT optimistically update the toggle's
     // checked state — we wait for the IPC response so the user sees
     // the persisted value (avoids a flash of "on" if the write fails).
+    //
+    // We capture the pre-click value at the moment of the event so
+    // that any rollback (failure path) restores the user's earlier
+    // intent rather than the logical inverse of whatever we last
+    // observed. The previous implementation rolled back to `!enabled`,
+    // which corrupted UI state if the user double-clicked the
+    // checkbox before the first IPC returned: the second click would
+    // flip the checkbox to a third state, then the first IPC's
+    // failure would roll back to the inverse of the second click —
+    // which is NOT the user's original value.
     toggle.addEventListener('change', async (event) => {
+      // Disable the checkbox while the IPC is in flight so a
+      // rapid second click cannot race the rollback path. The
+      // disabled state is restored in the `finally` block.
+      const previousValue = !event.target.checked;
+      toggle.disabled = true;
       const enabled = Boolean(event.target.checked);
       try {
         const res = await api.setMinimizeToTray(enabled);
@@ -246,18 +266,21 @@ const initSettingsUI = async () => {
           );
           reportError('info', 'Minimize-to-tray preference saved', { enabled });
         } else {
-          // Roll back the UI when persistence fails so the user does
-          // not see "on" while the app behaves like "off".
-          event.target.checked = !enabled;
+          // Roll back to the pre-click value, not the inverse of
+          // the latest click — the user might have toggled multiple
+          // times while the IPC was in flight.
+          event.target.checked = previousValue;
           setMinimizeStatus(
             `Failed to save preference: ${(res && res.error) || 'unknown error'}`,
             'error'
           );
         }
       } catch (err) {
-        event.target.checked = !enabled;
+        event.target.checked = previousValue;
         reportError('error', 'Failed to save minimize-to-tray preference', err);
         setMinimizeStatus('Failed to save preference (see toast).', 'error');
+      } finally {
+        toggle.disabled = false;
       }
     });
   }
@@ -295,27 +318,40 @@ const initAdminUI = async () => {
 
   if (btn) {
     btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      setAdminStatus('Requesting administrator privileges…', 'pending');
+      // Disable the button BEFORE updating the status text so a
+      // second click cannot observe a half-updated state. The
+      // single-state-update helper is the local `updateState`
+      // closure — it sets BOTH the status and the button in
+      // lockstep so the user never sees a flash of stale text.
+      const updateState = (message, kind, opts = {}) => {
+        setAdminStatus(message, kind);
+        if (opts.enableButton === true) {
+          btn.disabled = false;
+        } else if (opts.enableButton === false) {
+          btn.disabled = true;
+        }
+      };
+      updateState('Requesting administrator privileges…', 'pending', { enableButton: false });
       try {
         const res = await api.requestAdminElevation();
         if (res && res.ok) {
           if (res.alreadyElevated) {
-            setAdminStatus('Already running as administrator.', 'ok');
+            updateState('Already running as administrator.', 'ok', { enableButton: false });
           } else {
-            setAdminStatus('Elevation requested. The app will restart shortly.', 'ok');
+            updateState('Elevation requested. The app will restart shortly.', 'ok', {
+              enableButton: false,
+            });
           }
         } else {
-          setAdminStatus(
+          updateState(
             `Failed to request elevation: ${(res && res.reason) || 'unknown error'}`,
-            'error'
+            'error',
+            { enableButton: true }
           );
-          btn.disabled = false;
         }
       } catch (err) {
         reportError('error', 'Failed to request admin elevation', err);
-        setAdminStatus('Failed to request elevation (see toast).', 'error');
-        btn.disabled = false;
+        updateState('Failed to request elevation (see toast).', 'error', { enableButton: true });
       }
     });
   }
