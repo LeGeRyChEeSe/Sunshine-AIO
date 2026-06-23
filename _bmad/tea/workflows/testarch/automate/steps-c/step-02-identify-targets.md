@@ -50,6 +50,8 @@ Determine what needs to be tested and select appropriate test levels and priorit
 - Otherwise auto-discover features in `{source_dir}`
 - Prioritize critical paths, integrations, and untested logic
 
+**If {detected_stack} is `frontend` or `fullstack`:**
+
 **Browser Exploration (if `tea_browser_automation` is `cli` or `auto`):**
 
 > **Fallback:** If CLI is not installed, fall back to MCP (if available) or skip browser exploration and rely on code/doc analysis.
@@ -62,6 +64,16 @@ Use CLI to explore the application and identify testable pages/flows:
 4. `playwright-cli -s=tea-automate close`
 
 > **Session Hygiene:** Always close sessions using `playwright-cli -s=tea-automate close`. Do NOT use `close-all` — it kills every session on the machine and breaks parallel execution.
+
+**If {detected_stack} is `backend` or `fullstack`:**
+
+**Source & API Analysis (no browser exploration):**
+
+- Scan source code for route handlers, controllers, service classes, and public APIs
+- Read OpenAPI/Swagger specs (`openapi.yaml`, `swagger.json`) if available
+- Identify database models, migrations, and data access patterns
+- Map service-to-service integrations and message queue consumers/producers
+- Check for existing contract tests (Pact, etc.)
 
 ---
 

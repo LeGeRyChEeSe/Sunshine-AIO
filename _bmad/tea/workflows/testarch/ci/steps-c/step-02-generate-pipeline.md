@@ -2,7 +2,6 @@
 name: 'step-02-generate-pipeline'
 description: 'Generate CI pipeline configuration'
 nextStepFile: './step-03-configure-quality-gates.md'
-pipelineOutputFile: '{project-root}/.github/workflows/test.yml'
 outputFile: '{test_artifacts}/ci-pipeline-progress.md'
 ---
 
@@ -36,16 +35,20 @@ Create platform-specific CI configuration with test execution, sharding, burn-in
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-## 1. Select Template
+## 1. Resolve Output Path and Select Template
 
-Choose template based on platform:
+Determine the pipeline output file path based on the detected `ci_platform`:
 
-- GitHub Actions → `.github/workflows/test.yml`
-- GitLab CI → `.gitlab-ci.yml`
-- Circle CI → `.circleci/config.yml`
-- Jenkins → `Jenkinsfile`
+| CI Platform      | Output Path                                 | Template File                                       |
+| ---------------- | ------------------------------------------- | --------------------------------------------------- |
+| `github-actions` | `{project-root}/.github/workflows/test.yml` | `{installed_path}/github-actions-template.yaml`     |
+| `gitlab-ci`      | `{project-root}/.gitlab-ci.yml`             | `{installed_path}/gitlab-ci-template.yaml`          |
+| `jenkins`        | `{project-root}/Jenkinsfile`                | `{installed_path}/jenkins-pipeline-template.groovy` |
+| `azure-devops`   | `{project-root}/azure-pipelines.yml`        | `{installed_path}/azure-pipelines-template.yaml`    |
+| `harness`        | `{project-root}/.harness/pipeline.yaml`     | `{installed_path}/harness-pipeline-template.yaml`   |
+| `circle-ci`      | `{project-root}/.circleci/config.yml`       | _(no template; generate from first principles)_     |
 
-Use templates from `{installed_path}` when available (e.g., `github-actions-template.yaml`, `gitlab-ci-template.yaml`).
+Use templates from `{installed_path}` when available. Adapt the template to the project's `test_stack_type` and `test_framework`.
 
 ---
 
@@ -65,9 +68,17 @@ Include stages:
 - Parallel sharding enabled
 - CI retries configured
 - Capture artifacts (HTML report, JUnit XML, traces/videos on failure)
-- Cache dependencies (node_modules / pnpm / npm cache)
+- Cache dependencies (language-appropriate: node_modules, .venv, .m2, go module cache, NuGet, bundler)
 
-Write the selected pipeline configuration to `{pipelineOutputFile}` (or adjust the path if a non-GitHub platform was chosen).
+Write the selected pipeline configuration to the resolved output path from step 1. Adjust test commands based on `test_stack_type` and `test_framework`:
+
+- **Frontend/Fullstack**: Include browser install, E2E/component test commands, Playwright/Cypress artifacts
+- **Backend (Node.js)**: Use `npm test` or framework-specific commands (`vitest`, `jest`), skip browser install
+- **Backend (Python)**: Use `pytest` with coverage (`pytest --cov`), install via `pip install -r requirements.txt` or `poetry install`
+- **Backend (Java/Kotlin)**: Use `mvn test` or `gradle test`, cache `.m2/repository` or `.gradle/caches`
+- **Backend (Go)**: Use `go test ./...` with coverage (`-coverprofile`), cache Go modules
+- **Backend (C#/.NET)**: Use `dotnet test` with coverage, restore NuGet packages
+- **Backend (Ruby)**: Use `bundle exec rspec` with coverage, cache `vendor/bundle`
 
 ---
 

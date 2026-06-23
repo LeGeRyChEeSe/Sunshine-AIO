@@ -328,20 +328,20 @@ Can we verify this effectively without manual toil?
 
 **Question:** Can we verify this effectively without manual toil?
 
-| Criterion                    | Status | Evidence                 | Gap/Action               |
-| ---------------------------- | ------ | ------------------------ | ------------------------ |
-| ⬜ Isolation: Mock deps      | ⚠️     | No Athena mock           | Implement mock endpoints |
-| ⬜ Headless: API-accessible  | ✅     | All MCP tools are REST   | N/A                      |
-| ⬜ State Control: Seeding    | ⚠️     | `/api/test-data` pending | Sprint 0 blocker         |
-| ⬜ Sample Requests: Examples | ⬜     | Pending schemas          | Finalize ADR Tools       |
+| Criterion                    | Status | Evidence                 | Gap/Action                 |
+| ---------------------------- | ------ | ------------------------ | -------------------------- |
+| ⬜ Isolation: Mock deps      | ⚠️     | No Athena mock           | Implement mock endpoints   |
+| ⬜ Headless: API-accessible  | ✅     | All MCP tools are REST   | N/A                        |
+| ⬜ State Control: Seeding    | ⚠️     | `/api/test-data` pending | Pre-implementation blocker |
+| ⬜ Sample Requests: Examples | ⬜     | Pending schemas          | Finalize ADR Tools         |
 
 **Overall Status:** ⚠️ CONCERNS (2/4 criteria met)
 
 **Next Actions:**
 
-- [ ] Backend: Implement Athena mock endpoints (Sprint 0)
-- [ ] Backend: Implement `/api/test-data` (Sprint 0)
-- [ ] PM: Finalize sample requests (Sprint 1)
+- [ ] Backend: Implement Athena mock endpoints (pre-implementation)
+- [ ] Backend: Implement `/api/test-data` (pre-implementation)
+- [ ] PM: Finalize sample requests (implementation phase)
 
 {Repeat for all 8 categories}
 ```

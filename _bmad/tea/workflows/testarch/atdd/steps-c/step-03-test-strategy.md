@@ -45,11 +45,20 @@ Translate acceptance criteria into a prioritized, level-appropriate test plan.
 
 ## 2. Select Test Levels
 
-Choose the best level per scenario:
+Choose the best level per scenario based on `{detected_stack}`:
+
+**If {detected_stack} is `frontend` or `fullstack`:**
 
 - **E2E** for critical user journeys
 - **API** for business logic and service contracts
 - **Component** for UI behavior
+
+**If {detected_stack} is `backend` or `fullstack`:**
+
+- **Unit** for pure functions, business logic, and edge cases
+- **Integration** for service interactions, database queries, and middleware
+- **API/Contract** for endpoint validation, request/response schemas, and Pact contracts
+- **No E2E** for pure backend projects (no browser-based testing needed)
 
 ---
 

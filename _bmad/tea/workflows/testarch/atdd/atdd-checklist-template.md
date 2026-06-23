@@ -2,6 +2,8 @@
 stepsCompleted: []
 lastStep: ''
 lastSaved: ''
+workflowType: 'testarch-atdd'
+inputDocuments: []
 ---
 
 # ATDD Checklist - Epic {epic_num}, Story {story_num}: {story_title}

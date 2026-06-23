@@ -22,6 +22,7 @@ template: "{installed_path}/test-review-template.md"
 variables:
   test_dir: "{project-root}/tests" # Root test directory
   review_scope: "single" # single (one file), directory (folder), suite (all tests)
+  test_stack_type: "auto" # auto, frontend, backend, fullstack - from config or auto-detected
 
 # Output configuration
 default_output_file: "{test_artifacts}/test-review.md"
