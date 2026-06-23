@@ -1,7 +1,7 @@
 ---
 story_key: 1-2-configuration-du-logging-et-gestion-des-erreurs
 title: Configuration du logging et gestion des erreurs
-status: in-progress
+status: review
 epic: 1
 ---
 
