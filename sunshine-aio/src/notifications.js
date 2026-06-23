@@ -46,8 +46,10 @@
  *   identical to the user.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeLog } from './logger.js';
 import { restoreMainWindow } from './windowFocus.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -173,6 +175,7 @@ const resolveNotificationCtor = (deps) => {
 };
 
 const resolveIsSupported = (deps, NotificationCtor) => {
+  if (!deps) return false;
   if (typeof deps.isSupported === 'function') {
     try {
       return Boolean(deps.isSupported());
@@ -192,6 +195,30 @@ const resolveIsSupported = (deps, NotificationCtor) => {
   // "supported" so the caller at least gets a chance; the actual
   // constructor will throw synchronously if the platform refuses.
   return true;
+};
+
+/**
+ * Resolve the icon path that will be passed to the Notification
+ * constructor. The default points at `../assets/app-icon.png` relative
+ * to this module — but if the file is missing (no assets/ directory in
+ * the repo today, or a stripped-down test fixture) we return `null`
+ * so the Notification falls back to the OS default app icon rather
+ * than logging a per-toast warning from Electron about an unreadable
+ * icon path.
+ *
+ * @param {string|undefined} iconPath
+ * @param {object|null} [logger]  Used to surface a one-time warning
+ *        when the default icon path is missing.
+ * @returns {string|null}
+ */
+const resolveIconPath = (iconPath, logger) => {
+  if (iconPath) return iconPath;
+  const resolved = path.join(__dirname, DEFAULT_ICON_RELATIVE);
+  if (fs.existsSync(resolved)) return resolved;
+  safeLog(logger, 'warn', 'NotificationManager: default icon not found; using OS default', {
+    triedPath: resolved,
+  });
+  return null;
 };
 
 export class NotificationManager {
@@ -222,10 +249,24 @@ export class NotificationManager {
     if (typeof getMainWindow !== 'function') {
       throw new TypeError('NotificationManager: getMainWindow must be a function');
     }
-    const deps = electronDeps || defaultElectronDeps();
+    if (!electronDeps) {
+      // The caller (main.js) is expected to inject `electronDeps`.
+      // There is intentionally no runtime `require('electron')`
+      // fallback here: this module is ESM, mixing CommonJS requires
+      // makes the bundler behaviour harder to predict, and tray.js
+      // already follows the same "deps injected by caller" pattern.
+      // In tests, the missing-deps path means we degrade gracefully
+      // (no notifications will be shown, but no crash either).
+      safeLog(
+        logger,
+        'warn',
+        'NotificationManager: no electronDeps provided; notifications disabled'
+      );
+    }
+    const deps = electronDeps || null;
     this._deps = deps;
     this._getMainWindow = getMainWindow;
-    this._iconPath = iconPath || path.join(__dirname, DEFAULT_ICON_RELATIVE);
+    this._iconPath = resolveIconPath(iconPath, logger);
     this._logger = logger || null;
     this._enabled = enabled !== false;
     this._NotificationCtor = resolveNotificationCtor(deps);
@@ -415,37 +456,9 @@ export class NotificationManager {
   }
 
   _log(level, message, meta) {
-    const logger = this._logger;
-    if (!logger || typeof logger[level] !== 'function') return;
-    try {
-      logger[level](message, meta);
-    } catch {
-      /* logger is best-effort */
-    }
+    safeLog(this._logger, level, message, meta);
   }
 }
-
-/**
- * Default electron dependency bundle. Imports happen lazily so unit
- * tests can override the module before the constructor reads the
- * real `electron` package.
- */
-const defaultElectronDeps = () => {
-  try {
-    // Use require to keep the syntax consistent with the rest of the
-    // module (ESM). The conditional ensures we only pull from
-    // `electron` when available.
-
-    const electron = require('electron');
-    return {
-      Notification: electron && electron.Notification,
-      isSupported:
-        electron && electron.Notification ? () => electron.Notification.isSupported() : () => false,
-    };
-  } catch {
-    return { Notification: null, isSupported: () => false };
-  }
-};
 
 let _singleton = null;
 

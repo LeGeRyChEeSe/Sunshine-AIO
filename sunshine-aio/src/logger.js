@@ -539,3 +539,30 @@ export const defaultLogsDir = () => path.join(process.cwd(), 'logs');
  */
 export const createDefaultLogger = (overrides = {}) =>
   createLogger({ logsDir: defaultLogsDir(), ...overrides });
+
+/**
+ * Defensive best-effort logger shim. Used by modules (notifications,
+ * tray, settings, errorHandler) that may receive a foreign logger
+ * instance from a host that does not implement every level. Centralises
+ * the `typeof logger[level] === 'function'` check and the swallow-throw
+ * pattern so each manager does not reimplement it.
+ *
+ * Behavior:
+ *   - If `logger` is falsy, or the requested level is not a function on
+ *     the logger, this is a silent no-op (the caller is best-effort).
+ *   - Any exception thrown by `logger[level](message, meta)` is
+ *     swallowed. The audit trail must never take down the caller.
+ *
+ * @param {object|null|undefined} logger
+ * @param {string} level  One of 'debug' | 'info' | 'warn' | 'error'.
+ * @param {string} message
+ * @param {object} [meta]
+ */
+export const safeLog = (logger, level, message, meta) => {
+  if (!logger || typeof logger[level] !== 'function') return;
+  try {
+    logger[level](message, meta);
+  } catch {
+    /* logger is best-effort */
+  }
+};

@@ -24,6 +24,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   MAX_FILES,
   rotateFiles,
+  safeLog,
 } from './logger.js';
 
 const makeTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sunshine-logger-'));
@@ -582,5 +583,35 @@ describe('integration: console output streams', () => {
     } finally {
       cleanupTempDir(tempDir);
     }
+  });
+});
+
+describe('safeLog', () => {
+  it('is a no-op when logger is falsy', () => {
+    expect(() => safeLog(null, 'info', 'msg')).not.toThrow();
+    expect(() => safeLog(undefined, 'warn', 'msg', { a: 1 })).not.toThrow();
+  });
+
+  it('is a no-op when the requested level is missing', () => {
+    const logger = { info: () => {} };
+    expect(() => safeLog(logger, 'warn', 'msg')).not.toThrow();
+    // logger.warn was never invoked, so the test cannot directly
+    // assert on it — but if safeLog had thrown the test would fail.
+  });
+
+  it('forwards message and meta when the level exists', () => {
+    const fn = vi.fn();
+    const logger = { info: fn };
+    safeLog(logger, 'info', 'evt', { foo: 'bar' });
+    expect(fn).toHaveBeenCalledWith('evt', { foo: 'bar' });
+  });
+
+  it('swallows exceptions thrown by the logger', () => {
+    const logger = {
+      info: () => {
+        throw new Error('boom');
+      },
+    };
+    expect(() => safeLog(logger, 'info', 'evt')).not.toThrow();
   });
 });
