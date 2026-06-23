@@ -352,41 +352,17 @@ const getPythonBridge = () => {
     pythonBridgeInitPromise.catch((err) => {
       logger.error('Python bridge failed to initialize', err);
     });
-    // Story 1.5: wire notification hooks onto the Python bridge
-    // events. The bridge emits `event` envelopes from the Python
-    // side (e.g. {"event": "install-complete", "app": "Sunshine"})
-    // and `protocolError` when the protocol is violated. We map
-    // them to toasts so the user sees the same state through both
-    // the renderer and the OS notification surface.
+    // Story 1.5: defer notification wiring. The bridge is constructed
+    // eagerly (so the renderer can ping immediately after window
+    // creation), but the notification manager is not yet initialised
+    // at the moment `getPythonBridge()` first runs inside
+    // `app.whenReady()`. Doing the wiring here would attach listeners
+    // that hold a null manager reference. Instead we expose a separate
+    // `wireNotificationsToBridge()` step that the caller MUST invoke
+    // AFTER `initNotificationManager()` so the bridge -> toast path is
+    // hooked up correctly. Calling this more than once is a no-op.
     try {
-      const mgr = getNotificationManagerSafe();
-      if (mgr) {
-        pythonBridge.on('event', (payload) => {
-          if (!payload || typeof payload !== 'object') return;
-          if (payload.event === 'install-complete') {
-            const appName =
-              typeof payload.app === 'string'
-                ? payload.app
-                : typeof payload.appName === 'string'
-                  ? payload.appName
-                  : '';
-            mgr.notifyInstallComplete(appName);
-          } else if (payload.event === 'update-available') {
-            const apps = Array.isArray(payload.apps) ? payload.apps : payload.apps;
-            mgr.notifyUpdateAvailable(apps);
-          } else if (payload.event === 'error') {
-            const msg =
-              typeof payload.message === 'string'
-                ? payload.message
-                : 'Python backend reported an error';
-            mgr.notifyError(msg, { title: 'Sunshine AIO — Backend error' });
-          }
-        });
-        pythonBridge.on('protocolError', (err) => {
-          const msg = err && err.message ? err.message : 'Python protocol violation';
-          mgr.notifyError(msg, { title: 'Sunshine AIO — Protocol error' });
-        });
-      }
+      wireNotificationsToBridge();
     } catch (err) {
       logger.warn('Failed to wire notification hooks to Python bridge', {
         message: err && err.message ? err.message : String(err),
@@ -397,6 +373,62 @@ const getPythonBridge = () => {
     logger.error('Failed to construct Python bridge', err);
     return Promise.reject(err);
   }
+};
+
+// Story 1.5: track whether the notification bridge wiring has been
+// applied. The first `getPythonBridge()` call constructs the bridge
+// BEFORE the notification manager exists; we therefore defer the
+// actual `bridge.on(...)` calls until `initNotificationManager()` has
+// run and the manager singleton is available. Calling this helper
+// multiple times is a no-op so `app.whenReady()` can defensively call
+// it after init without worrying about ordering with the eager
+// `getPythonBridge()` from the same block.
+let _notificationsWiredToBridge = false;
+
+/**
+ * Attach the bridge-event -> toast mapping. This MUST be called AFTER
+ * `initNotificationManager()` so `getNotificationManagerSafe()` returns
+ * the live manager. The function is idempotent.
+ *
+ * The bridge emits `event` envelopes from the Python side (e.g.
+ * {"event": "install-complete", "app": "Sunshine"}) and
+ * `protocolError` when the protocol is violated. We map them to
+ * toasts so the user sees the same state through both the renderer
+ * and the OS notification surface.
+ */
+const wireNotificationsToBridge = () => {
+  if (_notificationsWiredToBridge) return;
+  if (!pythonBridge) return;
+  const mgr = getNotificationManagerSafe();
+  if (!mgr) {
+    // Manager not initialised yet. The caller is expected to retry
+    // after `initNotificationManager()` completes.
+    return;
+  }
+  pythonBridge.on('event', (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.event === 'install-complete') {
+      const appName =
+        typeof payload.app === 'string'
+          ? payload.app
+          : typeof payload.appName === 'string'
+            ? payload.appName
+            : '';
+      mgr.notifyInstallComplete(appName);
+    } else if (payload.event === 'update-available') {
+      const apps = Array.isArray(payload.apps) ? payload.apps : payload.apps;
+      mgr.notifyUpdateAvailable(apps);
+    } else if (payload.event === 'error') {
+      const msg =
+        typeof payload.message === 'string' ? payload.message : 'Python backend reported an error';
+      mgr.notifyError(msg, { title: 'Sunshine AIO — Backend error' });
+    }
+  });
+  pythonBridge.on('protocolError', (err) => {
+    const msg = err && err.message ? err.message : 'Python protocol violation';
+    mgr.notifyError(msg, { title: 'Sunshine AIO — Protocol error' });
+  });
+  _notificationsWiredToBridge = true;
 };
 
 // Application root is computed inside `scriptPathGuard.js` because the
@@ -1027,6 +1059,13 @@ app.whenReady().then(() => {
       // resolved relative to the bundled module.
       electronDeps: { Notification, isSupported: () => Notification.isSupported() },
     });
+    // Story 1.5: now that the manager exists, attach the bridge
+    // event listeners (install-complete / update-available / error /
+    // protocolError) that were deferred from `getPythonBridge()`.
+    // Without this call the bridge fires events into the void and
+    // AC1/AC2/AC3 paths via the Python bridge are silently dead.
+    // The helper is idempotent.
+    wireNotificationsToBridge();
   } catch (err) {
     logger.error('Failed to initialize notification manager', err);
   }

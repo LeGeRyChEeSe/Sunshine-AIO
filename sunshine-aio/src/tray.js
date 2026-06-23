@@ -1,6 +1,7 @@
 import { Tray, Menu, nativeImage, app } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { restoreMainWindow } from './windowFocus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,21 +152,11 @@ export class TrayManager {
   /**
    * Restore the main window: show it if hidden, focus it, and
    * un-minimize if minimized. No-op when the window is unavailable.
+   * The implementation lives in the shared `windowFocus` helper so
+   * the tray and notification surfaces cannot drift apart.
    */
   _restoreWindow() {
-    const win = this._getMainWindow();
-    if (!win) return;
-    try {
-      if (typeof win.show === 'function') win.show();
-      if (typeof win.unminimize === 'function' && win.isMinimized && win.isMinimized()) {
-        win.unminimize();
-      }
-      if (typeof win.focus === 'function') win.focus();
-    } catch {
-      // Window may be in the middle of being destroyed; swallow rather
-      // than throwing out of the click handler (which would surface as
-      // an uncaught exception in main).
-    }
+    restoreMainWindow(this._getMainWindow, { eventName: 'tray.restore' });
   }
 
   /**

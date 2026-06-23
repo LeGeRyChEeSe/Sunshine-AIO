@@ -48,6 +48,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { restoreMainWindow } from './windowFocus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -402,26 +403,15 @@ export class NotificationManager {
 
   /**
    * Bring the main window to the foreground. Mirrors the tray icon's
-   * click handler so notifications and the tray feel identical.
+   * click handler so notifications and the tray feel identical. The
+   * shared helper guarantees the show/unminimize/focus sequence
+   * stays in lockstep with the tray manager.
    */
   _focusApp() {
-    const win = this._getMainWindow();
-    if (!win) return;
-    try {
-      if (typeof win.show === 'function') win.show();
-      if (
-        typeof win.unminimize === 'function' &&
-        typeof win.isMinimized === 'function' &&
-        win.isMinimized()
-      ) {
-        win.unminimize();
-      }
-      if (typeof win.focus === 'function') win.focus();
-    } catch (err) {
-      this._log('warn', 'notification.focus_failed', {
-        message: err && err.message ? err.message : String(err),
-      });
-    }
+    restoreMainWindow(this._getMainWindow, {
+      logger: this._logger,
+      eventName: 'notification.focus',
+    });
   }
 
   _log(level, message, meta) {
