@@ -36,8 +36,10 @@ def _build_pong(params: Any) -> Dict[str, Any]:
     useful as a smoke-test scaffold but would leak arbitrary renderer
     arguments into log lines and the future electronAPI surface if a
     caller ever passed sensitive data through the no-op params slot.
-    The payload shape is therefore fixed to ``{"result": "pong"}``."""
-    return {"result": "pong"}
+    The payload exposes ``pong: True`` as a top-level typed flag so
+    the renderer (and any future caller) can verify the round-trip
+    shape without having to string-compare a magic value."""
+    return {"pong": True, "result": "pong"}
 
 
 # Command dispatch table. Adding a new command means adding an entry here

@@ -12,6 +12,18 @@ module.exports = {
       FileDescription: 'Sunshine AIO - Game Streaming Tool',
       ProductName: 'Sunshine AIO',
     },
+    // Bundle the Python bridge script as an extra resource so it is
+    // available at <resources>/python_bridge_server.py in the packaged
+    // app. Without this, the script is packed into the ASAR (which
+    // cannot be `exec`d / spawned from) and the bridge fails to start
+    // in production. The `extraResource` directive places the file
+    // outside the ASAR so `spawn(python, [scriptPath])` works.
+    extraResource: [
+      {
+        from: 'src/python_bridge_server.py',
+        to: 'python_bridge_server.py',
+      },
+    ],
   },
   rebuildConfig: {},
   makers: [

@@ -162,13 +162,38 @@ const pingPythonBackend = async () => {
   setPythonStatus('pending', 'Contacting Python backend…');
   try {
     const response = await window.electronAPI.pythonPing();
-    if (response && response.ok && response.result && response.result.result === 'pong') {
-      setPythonStatus('ok', `Python backend OK — ${response.result.result}`);
+    // The bridge wraps the Python result as { ok: true, result: <dict> }.
+    // The ping contract is parameterless so we look for a top-level
+    // `pong: true` flag — the previous `result.result === 'pong'` check
+    // was fragile because a future command that returns
+    // { version: '1.2.3' } would silently fall through the success
+    // branch. We also distinguish error codes so the user sees WHY
+    // (timeout vs not-ready vs unknown-command vs internal) rather than
+    // a generic "Python backend error".
+    if (response && response.ok && response.result && response.result.pong === true) {
+      setPythonStatus('ok', 'Python backend OK');
       reportError('info', 'Python backend ping succeeded', { result: response.result });
     } else {
+      // Map known structured error codes to user-readable toasts.
+      // Codes are defined by the main-process IPC layer (see main.js
+      // python:execute handler) so this is the canonical mapping.
+      const code = (response && response.code) || 'UNKNOWN';
       const reason = (response && response.error) || 'unknown error';
-      setPythonStatus('error', `Python backend error: ${reason}`);
-      reportError('warn', 'Python backend ping returned a non-success response', { reason });
+      const userMessage =
+        code === 'TIMEOUT'
+          ? 'Python backend timed out — it may be slow or stuck. Try again in a moment.'
+          : code === 'NOT_READY'
+            ? 'Python backend is still starting. Please wait and try again.'
+            : code === 'UNKNOWN_COMMAND'
+              ? 'Python backend does not recognize the request. Please report this as a bug.'
+              : code === 'BRIDGE_UNAVAILABLE'
+                ? 'Python backend is not running. Restart the application.'
+                : `Python backend error: ${reason}`;
+      setPythonStatus('error', userMessage);
+      reportError('warn', 'Python backend ping returned a non-success response', {
+        code,
+        reason,
+      });
     }
   } catch (err) {
     // IPC-level failure (preload crashed, channel rejected, etc.).

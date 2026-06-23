@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
 import { createDefaultLogger } from './logger.js';
 import { PythonBridge } from './pythonBridge.js';
@@ -79,6 +80,17 @@ const MAX_LOG_PAYLOAD_BYTES = 64 * 1024; // 64 KiB total per message
 const MAX_LOG_META_DEPTH = 5;
 const MAX_LOG_MESSAGES_PER_SECOND = 100;
 const logRateState = new Map(); // senderId -> { count, windowStart }
+// Hard cap on the rate-state map to prevent unbounded growth. Each
+// distinct `event.sender.id` (including destroyed WebContents from
+// window reloads, devtools, future multi-window) gets a new entry;
+// without eviction, these accumulate forever in long-running sessions.
+// 256 is comfortably larger than the realistic number of concurrent
+// renderers we expect to handle.
+const MAX_RATE_STATE_ENTRIES = 256;
+// How long a rate-state entry may sit idle before being evicted. 60s
+// matches the rate window; any state older than that has already
+// window-reset at least once and is safe to drop.
+const RATE_STATE_TTL_MS = 60_000;
 
 // Per-sender rate limit on python:execute / python:ping. Mirrors the
 // log:write cap. Without this, a compromised renderer or buggy JS loop
@@ -86,6 +98,29 @@ const logRateState = new Map(); // senderId -> { count, windowStart }
 // pending entry + timer in the bridge and exhausting memory.
 const MAX_PYTHON_MESSAGES_PER_SECOND = 100;
 const pythonRateState = new Map(); // senderId -> { count, windowStart }
+
+/**
+ * Evict stale rate-state entries. Walks both maps, drops any entry
+ * whose `windowStart` is older than `RATE_STATE_TTL_MS`, and if the
+ * map is still over `MAX_RATE_STATE_ENTRIES` after that, evicts the
+ * oldest entries (lowest `windowStart`) until the cap is respected.
+ * The function is called on every rate check so the cost is O(n) per
+ * check but n is bounded.
+ */
+const evictStaleRateState = (map, now) => {
+  for (const [key, state] of map) {
+    if (now - state.windowStart > RATE_STATE_TTL_MS) {
+      map.delete(key);
+    }
+  }
+  if (map.size > MAX_RATE_STATE_ENTRIES) {
+    const sorted = [...map.entries()].sort((a, b) => a[1].windowStart - b[1].windowStart);
+    const overflow = sorted.length - MAX_RATE_STATE_ENTRIES;
+    for (let i = 0; i < overflow; i += 1) {
+      map.delete(sorted[i][0]);
+    }
+  }
+};
 
 const isPayloadTooLarge = (payload) => {
   try {
@@ -108,6 +143,7 @@ const isMetaTooDeep = (value, depth = 0) => {
 
 const isRateLimited = (senderId) => {
   const now = Date.now();
+  evictStaleRateState(logRateState, now);
   const state = logRateState.get(senderId) || { count: 0, windowStart: now };
   if (now - state.windowStart >= 1000) {
     state.count = 0;
@@ -120,6 +156,7 @@ const isRateLimited = (senderId) => {
 
 const isPythonRateLimited = (senderId) => {
   const now = Date.now();
+  evictStaleRateState(pythonRateState, now);
   const state = pythonRateState.get(senderId) || { count: 0, windowStart: now };
   if (now - state.windowStart >= 1000) {
     state.count = 0;
@@ -128,6 +165,18 @@ const isPythonRateLimited = (senderId) => {
   state.count += 1;
   pythonRateState.set(senderId, state);
   return state.count > MAX_PYTHON_MESSAGES_PER_SECOND;
+};
+
+/**
+ * Evict rate-state entries for a specific sender when its WebContents
+ * is destroyed. Without this, an entry for a window that was closed
+ * (e.g. user closed the devtools or a future second window) would
+ * linger in the map until the TTL sweep. We hook this from
+ * `createWindow` via `webContents.on('destroyed', ...)`.
+ */
+const evictRateStateForSender = (senderId) => {
+  logRateState.delete(senderId);
+  pythonRateState.delete(senderId);
 };
 
 ipcMain.handle('log:write', (event, payload) => {
@@ -177,6 +226,47 @@ let pythonBridgeInitPromise = null;
 // launched. The bridge constructor uses the same default, but we resolve
 // it here too so the path-safety check (below) compares apples to apples.
 const PYTHON_SCRIPT_PATH = path.resolve(__dirname, 'python_bridge_server.py');
+
+// Fail fast at startup if the script is missing. The bridge construction
+// path lazily raises the same error inside `getPythonBridge()`, but by
+// then the user has already seen a window and tried to interact with
+// it — surface the error with a dialog AT START so the user knows what
+// is wrong before they try to ping the backend. A missing script is a
+// build / install problem and is not recoverable at runtime.
+try {
+  if (!fs.existsSync(PYTHON_SCRIPT_PATH)) {
+    const msg =
+      `Python bridge script not found at ${PYTHON_SCRIPT_PATH}. ` +
+      `The Sunshine AIO install may be incomplete or the script was moved by an update. ` +
+      `Reinstall the application or restore the file at the expected location.`;
+    logger.error(msg);
+    try {
+      dialog.showErrorBox('Python bridge script missing', msg);
+    } catch (dialogErr) {
+      logger.error('Failed to display missing-script dialog', dialogErr);
+    }
+  } else {
+    // On POSIX systems, verify the file is executable. On Windows the
+    // .py extension is associated with the launcher so an explicit
+    // X_OK check is unnecessary; we still probe it but ignore failures
+    // on win32.
+    try {
+      fs.accessSync(PYTHON_SCRIPT_PATH, fs.constants.R_OK);
+    } catch (accessErr) {
+      logger.error('Python bridge script is not readable', {
+        path: PYTHON_SCRIPT_PATH,
+        message: accessErr.message,
+      });
+    }
+  }
+} catch (checkErr) {
+  // A probe error must not crash app startup. Log and continue — the
+  // IPC handlers will surface the error per-call if the script is
+  // genuinely missing.
+  logger.warn('Failed to pre-check Python bridge script', {
+    message: checkErr && checkErr.message ? checkErr.message : String(checkErr),
+  });
+}
 
 /**
  * Lazily create the Python bridge. Subsequent calls return the same
@@ -300,17 +390,77 @@ const redactSecrets = (value, depth = 0) => {
 ipcMain.handle('python:ping', async (event) => {
   const senderId = event && event.sender ? event.sender.id : 'unknown';
   if (isPythonRateLimited(senderId)) {
-    return { ok: false, error: 'rate limited' };
+    return { ok: false, error: 'rate limited', code: 'RATE_LIMITED' };
   }
   try {
     const bridge = await getPythonBridge();
     const result = await bridge.ping();
     return { ok: true, result };
   } catch (err) {
-    logger.warn('python:ping failed', { message: err && err.message ? err.message : String(err) });
-    return { ok: false, error: err && err.message ? err.message : String(err) };
+    // Public error surface: map the internal error to a structured
+    // response with a stable `code` so the renderer can show a
+    // meaningful toast. We deliberately do NOT include the original
+    // message (which can contain absolute paths or interpreter
+    // locations) in the renderer-visible field — that data is logged
+    // server-side only.
+    const code = mapPythonErrorCode(err);
+    const message = publicPythonErrorMessage(err, code);
+    logger.warn('python:ping failed', {
+      code,
+      message: err && err.message ? err.message : String(err),
+    });
+    return { ok: false, error: message, code };
   }
 });
+
+/**
+ * Map an internal bridge error to a stable, renderer-safe code.
+ * The renderer uses this code to display a meaningful error message
+ * and to decide whether to retry. Codes are part of the IPC contract.
+ */
+const mapPythonErrorCode = (err) => {
+  if (!err) return 'INTERNAL_ERROR';
+  const name = err.name || '';
+  if (name === 'TimeoutError') return 'TIMEOUT';
+  if (name === 'ProcessExitError') return 'BRIDGE_UNAVAILABLE';
+  if (name === 'JsonProtocolError') return 'PROTOCOL_ERROR';
+  if (name === 'BackpressureError') return 'BACKPRESSURE';
+  const msg = (err.message || '').toLowerCase();
+  if (msg.includes('not running') || msg.includes('did not become ready')) {
+    return 'NOT_READY';
+  }
+  if (msg.includes('unknown') && msg.includes('cmd')) {
+    return 'UNKNOWN_COMMAND';
+  }
+  return 'INTERNAL_ERROR';
+};
+
+/**
+ * Produce a renderer-safe error message. Never includes absolute file
+ * paths, interpreter paths, or stack traces — those are logged
+ * server-side only. The renderer is treated as semi-trusted even
+ * with contextIsolation enabled.
+ */
+const publicPythonErrorMessage = (err, code) => {
+  switch (code) {
+    case 'TIMEOUT':
+      return 'Python request timed out';
+    case 'BRIDGE_UNAVAILABLE':
+      return 'Python backend is not running';
+    case 'NOT_READY':
+      return 'Python backend is not ready';
+    case 'PROTOCOL_ERROR':
+      return 'Python backend returned an invalid response';
+    case 'BACKPRESSURE':
+      return 'Python backend is busy — try again in a moment';
+    case 'UNKNOWN_COMMAND':
+      return 'Python backend does not recognize the request';
+    case 'RATE_LIMITED':
+      return 'Too many requests — slow down';
+    default:
+      return 'Python backend error';
+  }
+};
 
 // 'python:execute' — typed command dispatch. We accept only command
 // names present in ALLOWED_PYTHON_CMDS (kept in sync with
@@ -323,21 +473,25 @@ const ALLOWED_PYTHON_CMDS = new Set(['ping']);
 ipcMain.handle('python:execute', async (event, payload) => {
   const senderId = event && event.sender ? event.sender.id : 'unknown';
   if (isPythonRateLimited(senderId)) {
-    return { ok: false, error: 'rate limited' };
+    return { ok: false, error: 'Too many requests — slow down', code: 'RATE_LIMITED' };
   }
   if (!payload || typeof payload !== 'object') {
-    return { ok: false, error: 'payload must be an object with cmd and optional params' };
+    return {
+      ok: false,
+      error: 'payload must be an object with cmd and optional params',
+      code: 'BAD_PAYLOAD',
+    };
   }
   const { cmd, params } = payload;
   if (typeof cmd !== 'string' || !cmd) {
-    return { ok: false, error: 'cmd must be a non-empty string' };
+    return { ok: false, error: 'cmd must be a non-empty string', code: 'BAD_CMD' };
   }
   if (!ALLOWED_PYTHON_CMDS.has(cmd)) {
     // Reject unknown commands at the IPC boundary so they never reach
     // the Python script. This is the security boundary — the Python
     // side's "unknown command" response is treated as a last-resort
     // safety net, not the primary control.
-    return { ok: false, error: `cmd "${cmd}" is not in the allowlist` };
+    return { ok: false, error: 'Command is not allowed', code: 'UNKNOWN_COMMAND' };
   }
   // Validate params is a plain JSON value BEFORE serializing. A
   // `params` of `undefined` would otherwise fall into the try/catch
@@ -348,13 +502,17 @@ ipcMain.handle('python:execute', async (event, payload) => {
   // serialize-then-reject round-trip.
   if (params !== undefined && params !== null) {
     if (typeof params === 'function' || typeof params === 'symbol') {
-      return { ok: false, error: 'params must be a plain JSON value (no functions or symbols)' };
+      return {
+        ok: false,
+        error: 'params must be a plain JSON value',
+        code: 'BAD_PARAMS',
+      };
     }
     if (typeof params === 'number' && !Number.isFinite(params)) {
       // NaN / Infinity are not representable in JSON (they serialize to
       // "null" silently) — reject explicitly so a buggy renderer cannot
       // pass them through.
-      return { ok: false, error: 'params must be a finite number' };
+      return { ok: false, error: 'params must be a finite number', code: 'BAD_PARAMS' };
     }
   }
   // Bound params size to avoid a buggy renderer pushing the main process
@@ -364,24 +522,63 @@ ipcMain.handle('python:execute', async (event, payload) => {
     if (params !== undefined && params !== null) {
       const size = Buffer.byteLength(JSON.stringify(params), 'utf8');
       if (size > MAX_LOG_PAYLOAD_BYTES) {
-        return { ok: false, error: `params too large (${size} > ${MAX_LOG_PAYLOAD_BYTES})` };
+        return {
+          ok: false,
+          error: 'params too large',
+          code: 'PARAMS_TOO_LARGE',
+        };
       }
     }
   } catch {
-    return { ok: false, error: 'params are not JSON-serializable' };
+    return { ok: false, error: 'params are not JSON-serializable', code: 'BAD_PARAMS' };
   }
   try {
     const bridge = await getPythonBridge();
     const result = await bridge.send(cmd, safeParams);
     return { ok: true, result };
   } catch (err) {
+    // Public error surface: same mapping as python:ping. The raw
+    // `err.message` is NEVER returned to the renderer — it can leak
+    // install paths, library versions, and other environment details.
+    // We log the full message server-side and return a stable code
+    // plus a redacted user-visible message. We also propagate any
+    // structured fields the bridge attached (e.g. err.code, err.response)
+    // so the renderer can surface WHY the command failed (BAD_CMD,
+    // protocol-level details, etc.) — but we strip the raw line.
+    const code = mapPythonErrorCode(err);
+    const message = publicPythonErrorMessage(err, code);
+    const responseDetails = err && err.response ? sanitizeResponse(err.response) : undefined;
     logger.warn('python:execute failed', {
       cmd,
+      code,
       message: err && err.message ? err.message : String(err),
     });
-    return { ok: false, error: err && err.message ? err.message : String(err) };
+    return {
+      ok: false,
+      error: message,
+      code,
+      ...(responseDetails ? { details: responseDetails } : {}),
+    };
   }
 });
+
+/**
+ * Strip dangerous fields from a Python response before forwarding to
+ * the renderer. The renderer is semi-trusted even with
+ * contextIsolation enabled; we never want to leak raw stack traces,
+ * absolute paths, or interpreter versions.
+ */
+const sanitizeResponse = (response) => {
+  if (!response || typeof response !== 'object') return undefined;
+  const safe = {};
+  for (const key of Object.keys(response)) {
+    // Allow only a tiny set of well-known fields.
+    if (['code', 'ok', 'error'].includes(key)) {
+      safe[key] = response[key];
+    }
+  }
+  return Object.keys(safe).length > 0 ? safe : undefined;
+};
 
 const createWindow = () => {
   // Create the browser window.
@@ -396,10 +593,75 @@ const createWindow = () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Hardening flags: explicitly disable powerful features we
+      // never use. A future story that needs one of these can opt
+      // in. (allowRunningInsecureContent defaults to false; we set
+      // it explicitly so the security posture is documented here.)
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      // webSecurity defaults to true; we set it explicitly so a
+      // future refactor that touches this block does not silently
+      // weaken the boundary.
+      webSecurity: true,
+      // Disable the <webview> tag entirely. We never use it; allowing
+      // it would re-introduce the same contextIsolation bypass that
+      // we worked to lock down.
+      webviewTag: false,
     },
   });
 
   logger.info('Main window created', { id: mainWindow.id });
+
+  // Security: explicitly deny window.open from the renderer. Electron
+  // defaults to deny in newer versions, but we register the handler
+  // explicitly so a future refactor that touches the IPC / nav code
+  // does not silently regress.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  // Security: deny any in-window navigation triggered by the
+  // renderer (e.g. an <a href>, location.href assignment, or a
+  // compromised renderer via XSS). Without this, a future bug that
+  // renders untrusted DOM data could navigate the main BrowserWindow
+  // to an attacker-controlled URL — leaving the app displaying
+  // hostile content under the file:// origin and bypassing the
+  // contextIsolation boundary.
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    // Allow the initial load (dev server URL OR the bundled
+    // renderer index). All other navigations are denied.
+    const allowed =
+      (typeof MAIN_WINDOW_VITE_DEV_SERVER_URL !== 'undefined' &&
+        MAIN_WINDOW_VITE_DEV_SERVER_URL &&
+        navigationUrl === MAIN_WINDOW_VITE_DEV_SERVER_URL) ||
+      (navigationUrl.startsWith('file://') === false && false); // never match
+    if (!allowed) {
+      // Allow the file:// navigations that point to the bundled
+      // renderer. We compute the index path the same way loadFile
+      // does below so a future change to the renderer layout is
+      // caught by a single-source-of-truth edit.
+      const allowedIndex = path.join(
+        app.getAppPath(),
+        '.vite',
+        'renderer',
+        MAIN_WINDOW_VITE_NAME,
+        'index.html'
+      );
+      const allowedFileUrl = `file:///${allowedIndex.replace(/\\/g, '/')}`;
+      if (navigationUrl !== allowedFileUrl) {
+        event.preventDefault();
+        logger.warn('Blocked navigation attempt', { url: navigationUrl });
+      }
+    }
+  });
+
+  // Security: deny <webview> attachment. A future Story that adds a
+  // <webview> tag would inherit Electron's permissive defaults
+  // (sandbox=false unless explicitly set) and could load arbitrary
+  // external content. We block it here so a future contributor
+  // cannot accidentally re-introduce the attack surface.
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+    logger.warn('Blocked webview attach attempt');
+  });
 
   // Note: the 'log:write' IPC handler is registered ONCE at module load
   // (above). Do NOT re-register it here — that would duplicate every
@@ -411,9 +673,35 @@ const createWindow = () => {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     logger.info('Loading dev server URL', { url: MAIN_WINDOW_VITE_DEV_SERVER_URL });
   } else {
-    const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
-    mainWindow.loadFile(indexPath);
-    logger.info('Loading renderer index', { indexPath });
+    // In production, the renderer build output lives at
+    // <app>/.vite/renderer/<name>/index.html (the electron-forge Vite
+    // plugin layout). Resolve from `app.getAppPath()` rather than
+    // `__dirname` so the path is correct regardless of cwd and survives
+    // any future re-bundling step. Verify the file exists before
+    // loadFile() — otherwise Electron renders a blank window and the
+    // user gets no actionable error.
+    const indexPath = path.join(
+      app.getAppPath(),
+      '.vite',
+      'renderer',
+      MAIN_WINDOW_VITE_NAME,
+      'index.html'
+    );
+    if (!fs.existsSync(indexPath)) {
+      const msg = `Renderer index.html not found at ${indexPath}. The Vite renderer build may have failed or the output layout changed.`;
+      logger.error(msg);
+      try {
+        dialog.showErrorBox('Renderer not found', msg);
+      } catch (dialogErr) {
+        logger.error('Failed to display renderer-missing dialog', dialogErr);
+      }
+      // Do NOT call loadFile() on a missing path — Electron's behavior
+      // on missing files is to render an empty window with no error,
+      // which is the worst possible UX.
+    } else {
+      mainWindow.loadFile(indexPath);
+      logger.info('Loading renderer index', { indexPath });
+    }
   }
 
   // DevTools toggle shortcut (F12 or Ctrl+Shift+I) — dev / debug builds only.
@@ -438,6 +726,14 @@ const createWindow = () => {
     logger.error('Renderer process gone', details);
   });
 
+  // Evict rate-state entries when the WebContents is destroyed so a
+  // closed window does not leak a Map entry until the 60s TTL sweep.
+  // Important under window reloads (Ctrl+R in devtools) and future
+  // multi-window support.
+  mainWindow.webContents.on('destroyed', () => {
+    evictRateStateForSender(mainWindow.webContents.id);
+  });
+
   mainWindow.on('closed', () => {
     logger.info('Main window closed');
   });
@@ -448,6 +744,51 @@ const createWindow = () => {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   logger.info('App ready, creating main window');
+
+  // Install a strict response-header CSP. The <meta> CSP in
+  // index.html is the second line of defense — this is the first.
+  // A response-header CSP cannot be removed by a compromised
+  // renderer via DOM mutation and is enforced against XHR/fetch /
+  // WebSocket / navigation events. The directives are deliberately
+  // tight: no remote scripts, no inline scripts, no eval, no
+  // arbitrary connect-src, no embedded objects, no nested browsing
+  // contexts, no form submissions.
+  const STRICT_CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'none'",
+  ].join('; ');
+  try {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [STRICT_CSP],
+          'X-Content-Type-Options': ['nosniff'],
+          'Permissions-Policy': [
+            // Disable every powerful feature by default. A future
+            // story that needs one of these can opt in explicitly.
+            'camera=(), microphone=(), geolocation=(), payment=(), usb=(), ' +
+              'midi=(), bluetooth=(), accelerometer=(), gyroscope=(), ' +
+              'magnetometer=(), ambient-light-sensor=(), serial=(), ' +
+              'hid=(), encrypted-media=(), publickey-credentials-get=()',
+          ],
+        },
+      });
+    });
+  } catch (err) {
+    logger.warn('Failed to install CSP headers', {
+      message: err && err.message ? err.message : String(err),
+    });
+  }
+
   // Kick off the Python bridge eagerly so the renderer can ping
   // immediately after window creation. We don't await here — if the
   // bridge is slow or fails, the IPC handlers will surface the error

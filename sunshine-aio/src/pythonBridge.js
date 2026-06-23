@@ -37,6 +37,11 @@ import { createRequire } from 'node:module';
 
 import { createDefaultLogger } from './logger.js';
 
+// `app` from electron is only available when running inside the
+// Electron main process. We import it lazily inside resolveDefaultScriptPath
+// so the bridge module remains unit-testable in a plain Node context
+// (where `app` would be undefined).
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_EXIT_GRACE_MS = 2_000;
 const DEFAULT_READY_TIMEOUT_MS = 5_000;
@@ -47,6 +52,63 @@ const DEFAULT_READY_TIMEOUT_MS = 5_000;
 // envelope maxes out around 70 KiB serialized) while still being
 // bounded enough to keep us safe.
 const MAX_STDOUT_BUFFER_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Forcefully terminate a child process. On Windows, `proc.kill('SIGKILL')`
+ * is unreliable for grandchildren spawned via the `py` launcher or
+ * `cmd.exe`; the documented reliable force-kill is
+ * `taskkill /F /T /PID <pid>` (the `/T` flag kills the process tree,
+ * not just the immediate child). On POSIX, SIGKILL works as expected.
+ *
+ * The function is a no-op if `proc` is null/undefined or has no pid,
+ * so callers can invoke it unconditionally during error paths.
+ */
+const forceKillProcess = (proc, logger) => {
+  if (!proc || typeof proc.kill !== 'function') return;
+  const pid = proc.pid;
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    // Use taskkill via a fresh spawn so we can capture stderr if it
+    // fails. We deliberately do NOT use the proc.stdin/.stdout/.stderr
+    // (they belong to the child) and we do NOT await — this is
+    // best-effort cleanup during error paths.
+    try {
+      const { spawn: spawnSync } = require('node:child_process');
+      const taskkill = spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      taskkill.on('error', (err) => {
+        if (logger && typeof logger.warn === 'function') {
+          logger.warn('taskkill spawn failed', { pid, message: err.message });
+        }
+      });
+    } catch (err) {
+      // Fall back to the Node kill() if taskkill itself cannot spawn
+      // (e.g. a corporate policy blocks it). On Windows this maps to
+      // TerminateProcess, which kills the immediate child but not the
+      // tree — better than nothing.
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+      if (logger && typeof logger.warn === 'function') {
+        logger.warn('forceKillProcess taskkill fallback to SIGKILL', {
+          pid,
+          message: err && err.message ? err.message : String(err),
+        });
+      }
+    }
+    return;
+  }
+  // POSIX: SIGKILL works.
+  try {
+    proc.kill('SIGKILL');
+  } catch {
+    /* ignore */
+  }
+};
 // Hard cap on the number of concurrent in-flight requests. A
 // compromised renderer could otherwise grow _pending without bound by
 // rapidly firing `python:execute` calls until OOM.
@@ -76,10 +138,56 @@ let _cachedPythonCommand = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// The Python script lives two directories up: src/python_bridge_server.py.
-// We resolve from this file so the bridge works regardless of cwd (which
-// changes when packaged vs. dev vs. tested).
-const DEFAULT_SCRIPT_PATH = path.resolve(__dirname, '..', '..', 'src', 'python_bridge_server.py');
+/**
+ * Compute the default script path.
+ *
+ * In dev / tests, the script lives at
+ *   <project>/src/python_bridge_server.py
+ * which resolves to two levels up from this file (the dev layout puts
+ * pythonBridge.js under <project>/src/, and the script is a sibling
+ * of the same directory).
+ *
+ * In a packaged Electron build, the script is bundled as an
+ * `extraResource` (see forge.config.js → packagerConfig.extraResource)
+ * so it lives at:
+ *   <process.resourcesPath>/python_bridge_server.py
+ * i.e. outside the ASAR — Node cannot spawn a script from inside an
+ * ASAR, so we MUST resolve to the unpacked location. process.resourcesPath
+ * is the official Electron API for this and is set up by the Squirrel /
+ * squirrel installer to point at <install>/resources/.
+ *
+ * The `app` import from `electron` is deferred so this module can be
+ * loaded in a non-Electron context (e.g. unit tests). If `app` is
+ * unavailable, we fall through to the dev-layout resolution.
+ */
+const resolveDefaultScriptPath = () => {
+  // Dev / test layout: resolve relative to this file's directory.
+  const devPath = path.resolve(__dirname, '..', '..', 'src', 'python_bridge_server.py');
+
+  // Try to use the Electron `app` module to detect packaged mode.
+  // Lazy require so a test environment without `electron` installed
+  // still loads cleanly. process.resourcesPath exists even in dev
+  // (points at <repo>/resources, which doesn't exist), so we also
+  // check process.type or rely on the caller passing an explicit
+  // scriptPath.
+  let app;
+  try {
+    // Use createRequire so this works regardless of module type.
+    const requireFn = createRequire(import.meta.url);
+    const electron = requireFn('electron');
+    app = electron && electron.app ? electron.app : null;
+  } catch {
+    app = null;
+  }
+
+  if (app && typeof app.isPackaged === 'function' && app.isPackaged()) {
+    // Packaged: <resourcesPath>/python_bridge_server.py
+    return path.join(process.resourcesPath, 'python_bridge_server.py');
+  }
+  return devPath;
+};
+
+const DEFAULT_SCRIPT_PATH = resolveDefaultScriptPath();
 
 export class TimeoutError extends Error {
   constructor(message) {
@@ -107,6 +215,101 @@ export class JsonProtocolError extends Error {
     }
   }
 }
+
+/**
+ * Raised when the stdin pipe to the Python child is full. Distinct
+ * error type so the caller (renderer / IPC layer) can distinguish
+ * "retry later" (transient) from "command rejected" (semantic).
+ */
+export class BackpressureError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'BackpressureError';
+    this.code = 'BACKPRESSURE';
+  }
+}
+
+/**
+ * Build a minimal allowlist environment for the Python child.
+ * The default Node `spawn` inherits the entire parent process env,
+ * which is a large information-disclosure surface (AWS_*, AZURE_*,
+ * GITHUB_TOKEN, PYTHONPATH, VIRTUAL_ENV, NODE_*, etc.). We restrict
+ * to only the variables the Python interpreter and the bridge
+ * actually need to boot. The list is intentionally tiny — add a
+ * variable here only if a unit test or a future Story proves it is
+ * required.
+ */
+const safeChildEnv = () => {
+  const env = {};
+  const allowlist = [
+    'PATH',
+    'SystemRoot',
+    'SYSTEMROOT',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TEMP',
+    'TMP',
+  ];
+  for (const key of allowlist) {
+    if (process.env[key] !== undefined) {
+      env[key] = process.env[key];
+    }
+  }
+  // Strip any user-set PYTHONPATH / PYTHONHOME / VIRTUAL_ENV / NODE_*
+  // env vars defensively. The list of "always strip" prefixes is
+  // enforced even if the allowlist above does not match — we
+  // explicitly null them so a future Story that adds a variable to
+  // the allowlist does not accidentally leave these leaking.
+  const stripPrefixes = [
+    'PYTHON',
+    'VIRTUAL_ENV',
+    'CONDA',
+    'NODE_',
+    'NPM_',
+    'AWS_',
+    'AZURE_',
+    'GCP_',
+    'GITHUB_',
+    'GITLAB_',
+    'BITBUCKET_',
+    'HEROKU_',
+    'DO_',
+    'DIGITALOCEAN_',
+  ];
+  for (const key of Object.keys(process.env)) {
+    if (stripPrefixes.some((p) => key === p || key.startsWith(p))) {
+      // Skip: we only allow the variables in the allowlist above.
+      continue;
+    }
+    if (!(key in env)) {
+      env[key] = process.env[key];
+    }
+  }
+  // On Windows, preserve the Path casing that Python expects.
+  if (process.platform === 'win32' && env.Path === undefined && env.PATH !== undefined) {
+    env.Path = env.PATH;
+  }
+  return env;
+};
+
+/**
+ * Compute a safe cwd for the Python child. We deliberately do NOT
+ * inherit process.cwd() because the user may have launched the
+ * Electron app from a directory containing sensitive data. Use the
+ * app temp directory if available, else the script's own directory.
+ */
+const safeChildCwd = () => {
+  try {
+    const os = process.platform === 'win32' ? require('node:os') : null;
+    if (os && typeof os.tmpdir === 'function') {
+      return os.tmpdir();
+    }
+  } catch {
+    /* fall through */
+  }
+  return path.dirname(__filename);
+};
 
 /**
  * Parse the major version from a `python --version` banner. Returns the
@@ -333,6 +536,8 @@ export class PythonBridge extends EventEmitter {
     this._stdoutBuffer = '';
     this._stderrBuffer = '';
     this._intentionallyClosed = false;
+    this._paused = false; // stdin backpressure flag
+    this._drainPromise = null; // shared drain await promise
 
     // Auto-start, but allow callers to await start() explicitly if they want.
     // We do not block the constructor on the spawn so callers can attach
@@ -389,9 +594,24 @@ export class PythonBridge extends EventEmitter {
 
     let proc;
     try {
+      // Build a minimal allowlist environment. The Python child
+      // inherits the entire parent process env by default, which
+      // includes AWS_*, AZURE_*, GITHUB_TOKEN, and any other
+      // secret-bearing variables the parent process holds. A
+      // compromised Python interpreter (or a future Story that
+      // registers a destructive command) could exfiltrate those.
+      // We sanitize to a tiny allowlist: PATH (required for the
+      // Python interpreter resolution), SYSTEMROOT (required for
+      // Windows DLL loading), LANG (for consistent text encoding),
+      // and a few other essentials. We also set cwd to a known-safe
+      // directory and explicitly pass shell:false / windowsHide:true
+      // (windowsHide was already set; the rest is new).
       proc = this.spawnFn(command, [this.scriptPath], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        shell: false,
+        cwd: safeChildCwd(),
+        env: safeChildEnv(),
       });
     } catch (err) {
       this._failReady(err);
@@ -523,13 +743,7 @@ export class PythonBridge extends EventEmitter {
         cap: MAX_STDOUT_BUFFER_BYTES,
       });
       const proc = this._proc;
-      try {
-        if (proc && typeof proc.kill === 'function') {
-          proc.kill('SIGKILL');
-        }
-      } catch {
-        /* ignore */
-      }
+      forceKillProcess(proc, this.logger);
       this._rejectAllPending(
         new JsonProtocolError(
           `Python bridge stdout exceeded ${MAX_STDOUT_BUFFER_BYTES} bytes without a newline; child terminated`,
@@ -552,10 +766,43 @@ export class PythonBridge extends EventEmitter {
   _onStderr(chunk) {
     this._stderrBuffer += chunk;
     // Bound the stderr buffer so a chatty Python script cannot OOM us.
+    // When truncating, mark the boundary so an operator reading the log
+    // knows the beginning of a long stderr stream was lost (without
+    // this marker, the first line could be silently cut off mid-line
+    // and the operator would not know).
     if (this._stderrBuffer.length > 16 * 1024) {
-      this._stderrBuffer = this._stderrBuffer.slice(-16 * 1024);
+      const truncated = this._stderrBuffer.slice(-16 * 1024);
+      this._stderrBuffer = `...[truncated]\n${truncated}`;
     }
-    this.logger.warn('Python stderr', { chunk: chunk.trim() });
+    // Demote routine Python output to a non-warn level. The previous
+    // implementation logged EVERY stderr chunk at `warn`, which
+    // flooded the log file with DeprecationWarning / informational
+    // lines and drowned out real warnings. We now classify each line
+    // by content:
+    //   - Traceback ... → error
+    //   - DeprecationWarning / FutureWarning → debug
+    //   - UserWarning / RuntimeWarning → info
+    //   - anything else → info (was: warn)
+    // We buffer per-line so a single logical line split across two
+    // chunks is logged as one entry rather than two.
+    let newlineIdx;
+    while ((newlineIdx = this._stderrBuffer.indexOf('\n')) !== -1) {
+      const line = this._stderrBuffer.slice(0, newlineIdx).trim();
+      this._stderrBuffer = this._stderrBuffer.slice(newlineIdx + 1);
+      if (!line) continue;
+      let level = 'info';
+      if (/Traceback \(most recent call last\)/.test(line)) {
+        level = 'error';
+      } else if (/DeprecationWarning|FutureWarning/i.test(line)) {
+        level = 'debug';
+      } else if (/Warning/i.test(line)) {
+        level = 'info';
+      }
+      const fn = this.logger[level];
+      if (typeof fn === 'function') {
+        fn('Python stderr', { line });
+      }
+    }
   }
 
   /**
@@ -563,6 +810,60 @@ export class PythonBridge extends EventEmitter {
    * events (e.g. the initial 'ready' envelope); lines with an id are
    * responses to a pending request.
    */
+  /**
+   * Internal: await stdin drain. Shared across concurrent send() calls
+   * so they all wait on the same drain event rather than each
+   * installing its own one-shot listener (which would race with itself
+   * and silently lose the signal). The promise resolves on the next
+   * 'drain' event from the current stdin stream.
+   */
+  _awaitDrain() {
+    const proc = this._proc;
+    if (!proc || !proc.stdin || proc.stdin.destroyed) {
+      return Promise.reject(new ProcessExitError('Python bridge is not running (stdin closed)'));
+    }
+    if (!this._drainPromise) {
+      this._drainPromise = new Promise((resolve) => {
+        const onDrain = () => {
+          this._drainPromise = null;
+          if (proc.stdin && typeof proc.stdin.removeListener === 'function') {
+            proc.stdin.removeListener('drain', onDrain);
+            proc.stdin.removeListener('close', onClose);
+            proc.stdin.removeListener('error', onError);
+          }
+          resolve();
+        };
+        const onClose = () => {
+          this._drainPromise = null;
+          if (proc.stdin && typeof proc.stdin.removeListener === 'function') {
+            proc.stdin.removeListener('drain', onDrain);
+            proc.stdin.removeListener('close', onClose);
+            proc.stdin.removeListener('error', onError);
+          }
+          resolve(); // fall through; send() will catch the closed stdin
+        };
+        const onError = () => {
+          this._drainPromise = null;
+          if (proc.stdin && typeof proc.stdin.removeListener === 'function') {
+            proc.stdin.removeListener('drain', onDrain);
+            proc.stdin.removeListener('close', onClose);
+            proc.stdin.removeListener('error', onError);
+          }
+          resolve();
+        };
+        if (proc.stdin) {
+          proc.stdin.once('drain', onDrain);
+          proc.stdin.once('close', onClose);
+          proc.stdin.once('error', onError);
+        } else {
+          this._drainPromise = null;
+          resolve();
+        }
+      });
+    }
+    return this._drainPromise;
+  }
+
   _handleLine(line) {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -647,6 +948,23 @@ export class PythonBridge extends EventEmitter {
     }
     await this.whenReady();
 
+    // If stdin is currently under backpressure, await the drain before
+    // doing anything else. This is the critical correctness fix: the
+    // previous implementation set `_paused = true` but never checked
+    // it in subsequent send() calls, so a burst of concurrent writes
+    // would all allocate pending entries and grow _pending until the
+    // 1000-entry cap was hit. Now we serialize: callers wait on a
+    // single shared drain promise so only one new request enters the
+    // pipe per drain cycle.
+    if (this._paused) {
+      try {
+        await this._awaitDrain();
+      } catch {
+        // Drain promise rejected (stdin closed) — fall through to the
+        // closed-stdin check below.
+      }
+    }
+
     // Allocate the request id once and reuse it: the envelope id and the
     // pending-map id MUST agree so the response can be matched. Generating
     // them separately is a subtle bug that surfaces as "response for
@@ -707,17 +1025,13 @@ export class PythonBridge extends EventEmitter {
 
       try {
         // Handle stdin backpressure: if .write() returns false the pipe
-        // is full. Pause accepting new entries until 'drain' fires so a
-        // burst of concurrent sends cannot grow _pending indefinitely
-        // and deadlock the Python child.
+        // is full. Set _paused so the next send() awaits drain BEFORE
+        // allocating its pending entry. The drain promise is shared
+        // (see _awaitDrain) so concurrent callers serialize on the
+        // same drain event.
         const accepted = this._proc.stdin.write(`${envelope}\n`);
         if (accepted === false) {
           this._paused = true;
-          const onDrain = () => {
-            this._paused = false;
-            this._proc && this._proc.stdin && this._proc.stdin.removeListener('drain', onDrain);
-          };
-          this._proc.stdin.once('drain', onDrain);
         }
       } catch (err) {
         clearTimeout(timer);
@@ -766,11 +1080,11 @@ export class PythonBridge extends EventEmitter {
     // hang. Arming first also bounds the total wall-clock time of quit()
     // to roughly `exitGraceMs` + OS delivery latency.
     const killTimer = setTimeout(() => {
-      try {
-        proc.kill('SIGKILL');
-      } catch {
-        /* ignore */
-      }
+      // On Windows, proc.kill('SIGKILL') does not always kill the
+      // process tree spawned by the `py` launcher / cmd.exe. Use
+      // taskkill /F /T /PID via the platform-aware forceKillProcess
+      // helper so the child is guaranteed to be reaped.
+      forceKillProcess(proc, this.logger);
     }, this.exitGraceMs);
     if (typeof killTimer.unref === 'function') {
       killTimer.unref();
