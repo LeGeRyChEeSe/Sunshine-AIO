@@ -184,8 +184,14 @@ ipcMain.handle('python:ping', async () => {
   }
 });
 
-// 'python:execute' — generic command dispatch. We accept any command
-// name; the bridge enforces command whitelisting on the Python side.
+// 'python:execute' — typed command dispatch. We accept only command
+// names present in ALLOWED_PYTHON_CMDS (kept in sync with
+// preload.js and the COMMANDS dict in python_bridge_server.py). The
+// preload layer enforces the same allowlist as a first line of
+// defense; this is the second — a compromised or replaced preload
+// must not be able to widen the IPC surface on its own.
+const ALLOWED_PYTHON_CMDS = new Set(['ping']);
+
 ipcMain.handle('python:execute', async (_event, payload) => {
   if (!payload || typeof payload !== 'object') {
     return { ok: false, error: 'payload must be an object with cmd and optional params' };
@@ -193,6 +199,13 @@ ipcMain.handle('python:execute', async (_event, payload) => {
   const { cmd, params } = payload;
   if (typeof cmd !== 'string' || !cmd) {
     return { ok: false, error: 'cmd must be a non-empty string' };
+  }
+  if (!ALLOWED_PYTHON_CMDS.has(cmd)) {
+    // Reject unknown commands at the IPC boundary so they never reach
+    // the Python script. This is the security boundary — the Python
+    // side's "unknown command" response is treated as a last-resort
+    // safety net, not the primary control.
+    return { ok: false, error: `cmd "${cmd}" is not in the allowlist` };
   }
   // Bound params size to avoid a buggy renderer pushing the main process
   // into a giant JSON serialization. 64 KiB matches the log:write cap.

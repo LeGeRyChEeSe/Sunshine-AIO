@@ -10,6 +10,15 @@ const ALLOWED_CHANNELS = [
   'python:execute',
 ];
 
+// Strict allowlist of Python commands the renderer can ask the bridge
+// to dispatch. This MUST stay in sync with the COMMANDS dict in
+// python_bridge_server.py: every command name on the Python side must
+// appear here, and only those names may be sent through `python:execute`.
+// Treat this as a security boundary — adding a destructive command to
+// the Python side without also adding it here would silently widen the
+// IPC attack surface, so keep both changes in the same code review.
+const ALLOWED_PYTHON_CMDS = new Set(['ping']);
+
 // Validate that a channel is in the whitelist
 const isChannelAllowed = (channel) => {
   return ALLOWED_CHANNELS.includes(channel);
@@ -88,14 +97,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pythonPing: () => ipcRenderer.invoke('python:ping'),
 
   // pythonExecute: forward a typed command to the Python bridge.
-  //   - cmd: command name (string, required)
+  //   - cmd: command name (string, required, must be in ALLOWED_PYTHON_CMDS)
   //   - params: optional command-specific parameters (must be JSON-serializable)
   // The main process enforces a 64KiB cap on params and rejects non-serializable
-  // payloads so a misbehaving renderer cannot crash the bridge.
+  // payloads so a misbehaving renderer cannot crash the bridge. The cmd
+  // allowlist is enforced HERE and AGAIN in the main process so a
+  // compromised preload (or a future bug that bypasses this check) still
+  // cannot dispatch arbitrary commands to the Python script.
   pythonExecute: (cmd, params) => {
     const safeCmd = typeof cmd === 'string' ? cmd : '';
     if (!safeCmd) {
       return Promise.reject(new Error('pythonExecute: cmd must be a non-empty string'));
+    }
+    if (!ALLOWED_PYTHON_CMDS.has(safeCmd)) {
+      return Promise.reject(new Error(`pythonExecute: cmd "${safeCmd}" is not in the allowlist`));
     }
     return ipcRenderer.invoke('python:execute', { cmd: safeCmd, params });
   },

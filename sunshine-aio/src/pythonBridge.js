@@ -42,11 +42,11 @@ const DEFAULT_EXIT_GRACE_MS = 2_000;
 const DEFAULT_READY_TIMEOUT_MS = 5_000;
 
 // Prefer 'py' (Windows launcher) → 'python3' → 'python'. The bridge tries
-// them in order; the first one that exists wins. We probe by checking PATH
-// via 'where' (Windows) / 'which' (POSIX) so we do not have to import the
-// file-system just to pick an interpreter.
-const PYTHON_CANDIDATES =
-  process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python'];
+// them in order; the first one that exists AND reports Python 3.x wins.
+// We probe by spawning each candidate with '--version' and reading stdout
+// to enforce a major-version floor: the bridge server uses Python 3.6+
+// syntax (`from __future__ import annotations`, f-strings, etc.) and
+// would SyntaxError on Python 2.
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,33 +84,82 @@ export class JsonProtocolError extends Error {
 }
 
 /**
+ * Parse the major version from a `python --version` banner. Returns the
+ * major version number (e.g. 3) on success, or null on any parse failure.
+ * The Python version banner looks like "Python 3.11.2" on stdout (or
+ * stderr on older versions); we accept either by inspecting the full
+ * concatenated output the caller hands us.
+ */
+const parsePythonMajorVersion = (banner) => {
+  if (typeof banner !== 'string') return null;
+  // Match "Python 3" or "Python 3.11.2" — strict, do NOT match "Python 2".
+  const match = banner.match(/Python\s+(\d+)(?:\.\d+)*/i);
+  if (!match) return null;
+  const major = Number.parseInt(match[1], 10);
+  return Number.isFinite(major) ? major : null;
+};
+
+/**
  * Pick a Python interpreter. Tries each candidate in order and returns the
- * first one that spawns successfully (i.e. does not ENOENT).
+ * first one that:
+ *   1. spawns successfully (does not ENOENT)
+ *   2. exits 0 (or is killed by the ready-timeout with code null)
+ *   3. advertises a Python 3.x banner
+ *
+ * On Windows, the `py` launcher is probed with the `-3` flag first so we
+ * never silently land on a Python 2 interpreter that happens to be the
+ * highest version installed. If `-3` is rejected (older launcher, no
+ * Python 3 installed) we fall back to bare `py`, then `python`, then
+ * `python3`. For non-Windows candidates, a single `--version` probe is
+ * sufficient because `python3` already implies Python 3.
  *
  * Accepts an optional `spawnFn` for testing. When omitted, uses the real
  * node:child_process.spawn. The injected function should throw on ENOENT
- * to mimic the real behavior across platforms.
+ * to mimic the real behavior across platforms. The injected function may
+ * also accept a `__collectOutput` option in its spawn options so tests
+ * can return banner text from the probe child.
  *
  * Exported for tests; production code should rely on PythonBridge auto-start.
  */
 export const resolvePythonCommand = async (options = {}) => {
   const spawnFn = options.spawnFn || spawn;
-  for (const candidate of PYTHON_CANDIDATES) {
+
+  /**
+   * Probe a single (cmd, args) tuple. Returns a structured result so the
+   * caller can decide whether to fall through to the next candidate.
+   */
+  const probeCandidate = async (cmd, args) => {
     let probe;
     try {
-      probe = spawnFn(candidate, ['--version'], { stdio: 'ignore' });
+      probe = spawnFn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     } catch {
-      // ENOENT or other synchronous spawn failure — try the next candidate.
-      continue;
+      return { ok: false, reason: 'enoent' };
     }
     if (!probe) {
-      continue;
+      return { ok: false, reason: 'enoent' };
     }
-    const ok = await new Promise((resolve) => {
+
+    // Capture stdout+stderr so we can verify the banner reports Python 3.
+    // Some Python builds print the version to stderr (PEP 678 era
+    // inconsistency) so we read both.
+    let banner = '';
+    if (probe.stdout && typeof probe.stdout.on === 'function') {
+      probe.stdout.setEncoding('utf8');
+      probe.stdout.on('data', (chunk) => {
+        banner += chunk;
+      });
+    }
+    if (probe.stderr && typeof probe.stderr.on === 'function') {
+      probe.stderr.setEncoding('utf8');
+      probe.stderr.on('data', (chunk) => {
+        banner += chunk;
+      });
+    }
+
+    const exitOk = await new Promise((resolve) => {
       probe.once('error', () => resolve(false));
       probe.once('exit', (code) => resolve(code === 0 || code === null));
     });
-    // Reap the probe if still alive.
     if (probe.exitCode === null && probe.signalCode === null) {
       try {
         probe.kill();
@@ -118,11 +167,57 @@ export const resolvePythonCommand = async (options = {}) => {
         /* ignore */
       }
     }
-    if (ok) {
-      return candidate;
+    if (!exitOk) {
+      return { ok: false, reason: 'exit' };
     }
+    return { ok: true, banner };
+  };
+
+  // Build the ordered probe list. On Windows, the `py` launcher accepts
+  // a `-3` flag that makes it refuse to dispatch to Python 2 — we use
+  // that as the first probe so the bridge never lands on a py2 install
+  // that happens to be the highest registered version. Bare `py` and
+  // `python` are tried next as fallbacks; both still go through the
+  // Python-3 banner check below.
+  const probeList = [];
+  if (process.platform === 'win32') {
+    probeList.push({ cmd: 'py', args: ['-3', '--version'] });
+    probeList.push({ cmd: 'py', args: ['--version'] });
+    probeList.push({ cmd: 'python', args: ['--version'] });
+    probeList.push({ cmd: 'python3', args: ['--version'] });
+  } else {
+    probeList.push({ cmd: 'python3', args: ['--version'] });
+    probeList.push({ cmd: 'python', args: ['--version'] });
   }
-  throw new Error('No Python interpreter found. Tried: ' + PYTHON_CANDIDATES.join(', '));
+
+  for (const { cmd, args } of probeList) {
+    const result = await probeCandidate(cmd, args);
+    if (!result.ok) {
+      // ENOENT or non-zero exit — try the next candidate.
+      continue;
+    }
+    const major = parsePythonMajorVersion(result.banner);
+    if (major === null) {
+      // Banner could not be parsed. Reject rather than fall through with
+      // an unknown version — we cannot prove the interpreter is safe to
+      // use. (Falling through could silently land on an exotic or
+      // truncated banner that we cannot trust.)
+      continue;
+    }
+    if (major < 3) {
+      // Python 2 is not supported. Skip explicitly so the error path
+      // below reports a clear "Python 3 is required" rather than a
+      // generic "interpreter not found".
+      continue;
+    }
+    return cmd;
+  }
+
+  const triedList = probeList.map((p) => `${p.cmd} ${p.args.join(' ')}`).join(', ');
+  throw new Error(
+    `Python 3 is required (the Sunshine AIO bridge uses Python 3.6+ syntax). ` +
+      `No suitable interpreter was found. Tried: ${triedList}`
+  );
 };
 
 /**

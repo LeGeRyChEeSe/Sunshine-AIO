@@ -432,25 +432,49 @@ describe('PythonBridge cleanup', () => {
 });
 
 describe('resolvePythonCommand', () => {
-  it('returns the first candidate whose --version invocation succeeds', async () => {
-    const probeChild = new EventEmitter();
-    Object.assign(probeChild, {
+  /**
+   * Build a probe child whose stdout/stderr will deliver the given
+   * banner text and then exit 0 on the next tick. Mirrors what
+   * `python --version` does on real systems.
+   */
+  const makeBannerChild = (banner, opts = {}) => {
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const child = new EventEmitter();
+    Object.assign(child, {
       exitCode: null,
       signalCode: null,
       kill: vi.fn(),
-      stdout: null,
-      stderr: null,
+      stdout,
+      stderr,
     });
-    const spawnSpy = vi.fn((cmd) => {
-      if (cmd === 'py') {
-        // py --version succeeds
-        setImmediate(() => probeChild.emit('exit', 0));
-        return probeChild;
+    setImmediate(() => {
+      if (banner && opts.toStderr) {
+        stderr.push(`${banner}\n`);
+      } else if (banner) {
+        stdout.push(`${banner}\n`);
+      }
+      stdout.push(null);
+      stderr.push(null);
+      child.emit('exit', opts.exitCode ?? 0, null);
+    });
+    return child;
+  };
+
+  it('returns the first candidate whose --version invocation succeeds', async () => {
+    // On Windows, the first probe is `py -3 --version`. Provide a
+    // Python 3 banner on that probe and ENOENT for everything else.
+    const calls = [];
+    const spawnSpy = vi.fn((cmd, args) => {
+      calls.push(`${cmd} ${(args || []).join(' ')}`);
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('Python 3.11.2');
       }
       throw new Error('ENOENT');
     });
     const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
     expect(cmd).toBe('py');
+    expect(calls).toContain('py -3 --version');
   });
 
   it('throws when no candidate works', async () => {
@@ -458,42 +482,110 @@ describe('resolvePythonCommand', () => {
       throw new Error('ENOENT');
     });
     await expect(resolvePythonCommand({ spawnFn: spawnSpy })).rejects.toThrow(
-      /No Python interpreter/
+      /Python 3 is required/
     );
   });
 
   it('skips candidates that spawn but exit with a non-zero code', async () => {
-    const badChild = new EventEmitter();
-    Object.assign(badChild, {
-      exitCode: 1,
-      signalCode: null,
-      kill: vi.fn(),
-      stdout: null,
-      stderr: null,
-    });
-    const goodChild = new EventEmitter();
-    Object.assign(goodChild, {
-      exitCode: null,
-      signalCode: null,
-      kill: vi.fn(),
-      stdout: null,
-      stderr: null,
-    });
-    const calls = [];
-    const spawnSpy = vi.fn((cmd) => {
-      calls.push(cmd);
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        // `py -3` rejected (no Python 3 installed) — exit non-zero.
+        return makeBannerChild('', { exitCode: 1 });
+      }
       if (cmd === 'py') {
-        setImmediate(() => badChild.emit('exit', 1));
-        return badChild;
+        return makeBannerChild('Python 2.7.18');
       }
       if (cmd === 'python') {
-        setImmediate(() => goodChild.emit('exit', 0));
-        return goodChild;
+        return makeBannerChild('Python 3.10.4');
       }
       throw new Error('ENOENT');
     });
     const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
     expect(cmd).toBe('python');
-    expect(calls).toContain('py');
+  });
+
+  it('rejects Python 2 even when it is the only candidate that exists', async () => {
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('', { exitCode: 1 });
+      }
+      if (cmd === 'py') {
+        return makeBannerChild('Python 2.7.18');
+      }
+      if (cmd === 'python') {
+        return makeBannerChild('Python 2.7.18');
+      }
+      throw new Error('ENOENT');
+    });
+    await expect(resolvePythonCommand({ spawnFn: spawnSpy })).rejects.toThrow(
+      /Python 3 is required/
+    );
+  });
+
+  it('accepts a Python 3 banner delivered to stderr', async () => {
+    // Some Python builds write the version banner to stderr; we must
+    // accept it from either stream.
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('Python 3.9.5', { toStderr: true });
+      }
+      throw new Error('ENOENT');
+    });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    expect(cmd).toBe('py');
+  });
+
+  it('falls back from `py -3` to bare `py` to `python` to `python3` on Windows', async () => {
+    const calls = [];
+    const spawnSpy = vi.fn((cmd, args) => {
+      calls.push(`${cmd} ${(args || []).join(' ')}`);
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('', { exitCode: 1 });
+      }
+      if (cmd === 'py') {
+        return makeBannerChild('', { exitCode: 1 });
+      }
+      if (cmd === 'python') {
+        return makeBannerChild('', { exitCode: 1 });
+      }
+      if (cmd === 'python3') {
+        return makeBannerChild('Python 3.12.0');
+      }
+      throw new Error('ENOENT');
+    });
+    // Force the Windows probe list by stubbing process.platform. This
+    // lets the test run on any host while still exercising the
+    // Windows-specific ordering.
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+      expect(cmd).toBe('python3');
+      expect(calls).toEqual([
+        'py -3 --version',
+        'py --version',
+        'python --version',
+        'python3 --version',
+      ]);
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: originalPlatform,
+        configurable: true,
+      });
+    }
+  });
+
+  it('skips candidates whose banner is unparseable', async () => {
+    const spawnSpy = vi.fn((cmd, args) => {
+      if (cmd === 'py' && args && args[0] === '-3') {
+        return makeBannerChild('garbage that is not a python banner');
+      }
+      if (cmd === 'py') {
+        return makeBannerChild('Python 3.11.0');
+      }
+      throw new Error('ENOENT');
+    });
+    const cmd = await resolvePythonCommand({ spawnFn: spawnSpy });
+    expect(cmd).toBe('py');
   });
 });
