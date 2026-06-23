@@ -46,7 +46,7 @@ development_status:
   epic-1: in-progress
   1-1-initialisation-du-projet-electron-forge-vite: in-progress # Round 9 review: 3 Medium, 4 Low issues identified
   1-2-configuration-du-logging-et-gestion-des-erreurs: review # PR #41 open: 0 high, 0 medium after fix-loop
-  1-3-integration-du-backend-python-existant: in-progress
+  1-3-integration-du-backend-python-existant: review # PR #42 open: 0 high, 6 medium restants
   1-4-configuration-des-privileges-admin-et-du-system-tray: backlog
   1-5-implementation-des-notifications-systeme-windows: backlog
   epic-1-retrospective: optional
