@@ -105,6 +105,7 @@ vi.mock('three', () => {
 // Import after the mock so the SUT picks up the stubs.
 const { createScene, createFpsMonitor, disposeSceneObjects, SCENE_DEFAULTS } =
   await import('./setup.js');
+const { createSun } = await import('./sun.js');
 
 /**
  * Minimal canvas stub. Mirrors the bits of HTMLCanvasElement that
@@ -586,6 +587,230 @@ describe('three/setup.js (Story 2-1)', () => {
       expect(SCENE_DEFAULTS.cameraZ).toBe(5);
       expect(SCENE_DEFAULTS.near).toBeLessThan(SCENE_DEFAULTS.far);
       expect(SCENE_DEFAULTS.dprCap).toBe(2);
+    });
+  });
+
+  /**
+   * Story 2-2 integration: the scene controller must actually wire the
+   * sun into the render loop. The mock-only sun.test.js covers the
+   * sun in isolation but cannot catch "did we forget to register the
+   * updater?" — that bug is invisible until the renderer is open. The
+   * tests below exercise the same createScene() the renderer uses,
+   * with a real createSun() attached, to lock the wiring contract.
+   */
+  describe('sun integration (Story 2-2)', () => {
+    /**
+     * Minimal THREE stub for `createSun`. Mirrors the same shape used
+     * by sun.test.js but kept inline so the integration block stays
+     * self-contained — if sun.test.js drifts, this block still
+     * exercises the controller's wiring contract.
+     */
+    const buildThreeStub = () => {
+      class Color {
+        constructor(value) {
+          this.value = value;
+        }
+      }
+      class Geometry {
+        constructor() {
+          this.dispose = vi.fn();
+        }
+      }
+      class Material {
+        constructor(opts = {}) {
+          this.opts = opts;
+          this.dispose = vi.fn();
+          this.emissiveIntensity = opts.emissiveIntensity ?? 1;
+          this.color = opts.color !== undefined ? new Color(opts.color) : undefined;
+          this.emissive = opts.emissive !== undefined ? new Color(opts.emissive) : undefined;
+        }
+      }
+      class Object3D {
+        constructor() {
+          this.name = '';
+          this.children = [];
+          this.position = {
+            x: 0,
+            y: 0,
+            z: 0,
+            set(x, y, z) {
+              this.x = x;
+              this.y = y;
+              this.z = z;
+            },
+          };
+          this.scale = {
+            x: 1,
+            y: 1,
+            z: 1,
+            set(x, y, z) {
+              this.x = x;
+              this.y = y;
+              this.z = z;
+            },
+          };
+        }
+        add(child) {
+          this.children.push(child);
+        }
+        remove(child) {
+          const idx = this.children.indexOf(child);
+          if (idx !== -1) this.children.splice(idx, 1);
+        }
+      }
+      class Mesh extends Object3D {
+        constructor(geometry, material) {
+          super();
+          this.geometry = geometry;
+          this.material = material;
+        }
+      }
+      class SphereGeometry extends Geometry {}
+      class MeshStandardMaterial extends Material {}
+      class MeshBasicMaterial extends Material {}
+      return {
+        Object3D,
+        Mesh,
+        SphereGeometry,
+        MeshStandardMaterial,
+        MeshBasicMaterial,
+        Color,
+        BackSide: Symbol('BackSide'),
+      };
+    };
+
+    it('setSun stores the instance and getSun returns the same reference', () => {
+      const controller = createScene(baseOpts());
+      const THREE = buildThreeStub();
+      const sun = createSun({ THREE });
+
+      const previous = controller.setSun(sun);
+      expect(previous).toBeNull();
+      expect(controller.getSun()).toBe(sun);
+
+      controller.dispose();
+    });
+
+    it('setSun replaces an existing sun and disposes the prior one', () => {
+      const controller = createScene(baseOpts());
+      const THREE = buildThreeStub();
+      const firstSun = createSun({ THREE });
+      const secondSun = createSun({ THREE });
+
+      const disposeSpy = vi.spyOn(firstSun, 'dispose');
+      controller.setSun(firstSun);
+      controller.setSun(secondSun);
+
+      // Replacing should release the previous sun and unregister it
+      // from the loop. The prior dispose should fire exactly once.
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+      expect(controller.getSun()).toBe(secondSun);
+
+      controller.dispose();
+    });
+
+    it('the render-loop tick forwards (delta, elapsed) into sun.update', () => {
+      // Capture the queued RAF callbacks so we can drive the loop
+      // deterministically without relying on a real browser frame.
+      const pendingCallbacks = [];
+      const raf = vi.fn((cb) => {
+        pendingCallbacks.push(cb);
+        return pendingCallbacks.length;
+      });
+      const controller = createScene(baseOpts({ rafFactory: raf }));
+      const THREE = buildThreeStub();
+      const sun = createSun({ THREE });
+      const updateSpy = vi.spyOn(sun, 'update');
+      controller.setSun(sun);
+      controller.start();
+
+      // The controller schedules the first tick at start() time.
+      expect(pendingCallbacks).toHaveLength(1);
+      // Step a few frames; each one must call sun.update exactly once
+      // with the delta/elapsed pair the controller derives from the
+      // (stubbed) Clock.
+      pendingCallbacks.shift()();
+      pendingCallbacks.shift()();
+      pendingCallbacks.shift()();
+
+      expect(updateSpy).toHaveBeenCalledTimes(3);
+      for (const call of updateSpy.mock.calls) {
+        expect(call[0]).toBe(0.016); // clockStub.getDelta() returns 0.016
+      }
+
+      controller.dispose();
+    });
+
+    it('setInstalledTools on the controller forwards the map into the sun', () => {
+      const controller = createScene(baseOpts());
+      const THREE = buildThreeStub();
+      const sun = createSun({ THREE });
+      controller.setSun(sun);
+
+      controller.setInstalledTools({ sunshine: true, vdd: false, playnite: true });
+
+      // Satellite material colours must flip to activeColor for the
+      // tools marked installed. This proves the controller actually
+      // threads state into the sun and the sun updates its visuals.
+      const sunshineSat = sun.satellites.find((s) => s.name === 'sunshine');
+      const vddSat = sun.satellites.find((s) => s.name === 'vdd');
+      const playniteSat = sun.satellites.find((s) => s.name === 'playnite');
+      expect(sunshineSat.material.color.value).toBe(0xffe066);
+      expect(vddSat.material.color.value).toBe(0x6b6259);
+      expect(playniteSat.material.color.value).toBe(0xffe066);
+      expect(sun.isToolInstalled('sunshine')).toBe(true);
+      expect(sun.isToolInstalled('vdd')).toBe(false);
+
+      controller.dispose();
+    });
+
+    it('dispose() tears the sun down, calls sun.dispose, and clears getSun', () => {
+      const controller = createScene(baseOpts());
+      const THREE = buildThreeStub();
+      const sun = createSun({ THREE });
+      const disposeSpy = vi.spyOn(sun, 'dispose');
+      controller.setSun(sun);
+
+      controller.dispose();
+
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+      // After dispose the sun's own state must reflect teardown so a
+      // later setInstalledTools / update call cannot accidentally
+      // touch released GPU resources.
+      expect(sun.isDisposed()).toBe(true);
+      expect(controller.getSun()).toBeNull();
+    });
+
+    it('addUpdater registers and removeUpdater (returned function) unregisters', () => {
+      const controller = createScene(baseOpts());
+      const updater = vi.fn();
+      const remove = controller.addUpdater(updater);
+      expect(typeof remove).toBe('function');
+
+      // Drive the loop once.
+      const pendingCallbacks = [];
+      const raf = vi.fn((cb) => {
+        pendingCallbacks.push(cb);
+        return pendingCallbacks.length;
+      });
+      // Replace the controller's rafFactory on the existing controller.
+      // We rebuild a fresh controller because rafFactory is captured at
+      // construction time.
+      controller.dispose();
+
+      const fresh = createScene(baseOpts({ rafFactory: raf }));
+      const updater2 = vi.fn();
+      const remove2 = fresh.addUpdater(updater2);
+      fresh.start();
+      pendingCallbacks.shift()();
+      expect(updater2).toHaveBeenCalledTimes(1);
+
+      remove2();
+      const callsBefore = updater2.mock.calls.length;
+      pendingCallbacks.shift()();
+      expect(updater2.mock.calls.length).toBe(callsBefore);
+
+      fresh.dispose();
     });
   });
 });

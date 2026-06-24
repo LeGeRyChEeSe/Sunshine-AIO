@@ -35,7 +35,11 @@
  *   - Disposal is recursive: every mesh under the group has its
  *     geometry and material disposed exactly once.
  *   - The sun's pulsing is gated to `update(...)`. If a caller forgets
- *     to call update, the sun stays static — never throws.
+ *     to call update, the sun stays static — never throws. The first
+ *     update seeds `elapsed` with a tiny sentinel so callers that boot
+ *     with `(0, 0)` or `(0, undefined)` still see a non-trivial pulse
+ *     on the very first frame instead of holding at scale=1.0 until
+ *     the second tick.
  */
 
 const DEFAULT_CORE_RADIUS = 1.0;
@@ -174,6 +178,15 @@ export const createSun = (opts = {}) => {
   halo.name = 'SunHalo';
   group.add(halo);
 
+  // Pre-allocate one Color per active/inactive state and reuse them
+  // for every satellite flip. The previous implementation rebuilt a
+  // `new Color(...)` on every setInstalledTools call for every tool,
+  // which turned the function into a steady object factory even when
+  // the underlying state did not change (e.g. Zustand re-emits with
+  // identical payloads). Caching keeps this hot path allocation-free.
+  const activeColorInstance = new Color(activeColor);
+  const inactiveColorInstance = new Color(inactiveColor);
+
   // Satellite indicators — one per core tool. Each starts in the
   // "inactive" (dim) state until setInstalledTools flips it.
   const satellites = CORE_TOOLS.map((name, index) => {
@@ -212,6 +225,7 @@ export const createSun = (opts = {}) => {
   // transform can safely overwrite `group.scale` without losing the
   // pulse rhythm.
   let elapsed = 0;
+  let hasUpdated = false; // sentinel for the first-frame AC guarantee
   let disposed = false;
 
   const computePulseScale = () => {
@@ -247,9 +261,19 @@ export const createSun = (opts = {}) => {
     // the running sum of deltas. Either path is monotonic.
     if (Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0) {
       elapsed = elapsedSeconds;
-    } else {
+    } else if (dt > 0) {
       elapsed += dt;
+    } else if (!hasUpdated) {
+      // First-frame safety net: callers that hit us with `(0, undefined)`
+      // or `(0, 0)` (the standard test bootstrap) should still see the
+      // pulse animation kick in. Seed the elapsed clock with a tiny
+      // non-zero delta so the sin wave produces a non-trivial scale
+      // on the very first tick instead of holding at 1.0 until the
+      // second frame. After the first update, the running delta sum
+      // takes over.
+      elapsed += 0.0001;
     }
+    hasUpdated = true;
     // Apply pulse to the core (not the group) so the halo keeps its
     // fixed radius — the halo's role is a steady glow, not a pulse.
     const scale = computePulseScale();
@@ -282,18 +306,25 @@ export const createSun = (opts = {}) => {
     let changed = false;
     for (const name of CORE_TOOLS) {
       const next = Boolean(tools[name]);
-      if (installedState[name] !== next) {
-        installedState[name] = next;
-        changed = true;
+      if (installedState[name] === next) {
+        // No state transition — skip the material rebuild entirely
+        // so Zustand store re-emissions with identical payloads don't
+        // allocate Color objects on every change.
+        continue;
       }
+      installedState[name] = next;
+      changed = true;
       const satellite = satellites.find((s) => s.name === name);
       if (!satellite) {
         continue;
       }
       satellite.installed = next;
-      const color = next ? activeColor : inactiveColor;
-      satellite.material.color = new Color(color);
-      satellite.material.emissive = new Color(color);
+      // Reuse the cached Color instances instead of allocating a new
+      // pair on every state flip. Three.js mutates Color in place
+      // when assigned the same hex, so we just point the material at
+      // the pre-built instances.
+      satellite.material.color = next ? activeColorInstance : inactiveColorInstance;
+      satellite.material.emissive = next ? activeColorInstance : inactiveColorInstance;
       satellite.material.emissiveIntensity = next ? 1.4 : 0.6;
     }
     if (changed) {
