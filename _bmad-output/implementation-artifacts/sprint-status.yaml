@@ -61,7 +61,7 @@ development_status:
 
   # Epic 3: Navigation Planétaire
   epic-3: backlog
-  3-1-implementation-du-scroll-horizontal: backlog
+  3-1-implementation-du-scroll-horizontal: in-progress
   3-2-clic-sur-planete-et-focalisation: backlog
   3-3-retour-a-la-vue-systeme-solaire: backlog
   epic-3-retrospective: optional
