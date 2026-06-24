@@ -53,7 +53,7 @@ development_status:
 
   # Epic 2: Système Solaire 3D
   epic-2: in-progress
-  2-1-configuration-de-three-js-et-zustand: in-progress
+  2-1-configuration-de-three-js-et-zustand: review # PR #46 open: 0 high, 0 medium restants (61/61 tests pass)
   2-2-creation-du-composant-sun-soleil: backlog
   2-3-creation-du-composant-planet-planetes: backlog
   2-4-implementation-de-la-persistance-d-etat: backlog
