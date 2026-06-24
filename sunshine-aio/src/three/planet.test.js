@@ -198,6 +198,41 @@ describe('three/planet.js — generateProceduralNoise', () => {
     expect(diffs).toBeGreaterThan(0);
   });
 
+  it('default categories produce non-identical RGBA buffers', async () => {
+    // The visual contract requires "a unique procedural appearance per
+    // planet". A bare 32-bit FNV-1a hash plus a small pre-roll can
+    // leave adjacent ids with shared prefixes on visually identical
+    // textures. Verify the four default categories (games, streaming,
+    // utilities, emulators) each produce a unique buffer.
+    const mod = await import('./planet.js');
+    const { createThreeStub } = await import('./__fixtures__/threeStub.js');
+    const stub = createThreeStub({ vi });
+    const ids = ['games', 'streaming', 'utilities', 'emulators'];
+    // Use the public getSeed() surface to obtain each planet's seed,
+    // then drive the noise generator with that seed. This exercises
+    // the same path the real createPlanet() uses and protects against
+    // future regressions that decouple the seed from the noise.
+    const buffers = ids.map((id) => {
+      const planet = mod.createPlanet({ THREE: stub, category: { id } });
+      const seed = planet.getSeed();
+      return mod.generateProceduralNoise({
+        size: 8,
+        seed,
+        baseColor: 0xffffff,
+      }).pixels;
+    });
+    // Pairwise: every pair must differ in at least one byte.
+    for (let i = 0; i < buffers.length; i += 1) {
+      for (let j = i + 1; j < buffers.length; j += 1) {
+        let diffs = 0;
+        for (let k = 0; k < buffers[i].length; k += 1) {
+          if (buffers[i][k] !== buffers[j][k]) diffs += 1;
+        }
+        expect(diffs).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('clamps each channel to [0, 255]', async () => {
     const mod = await import('./planet.js');
     const out = mod.generateProceduralNoise({ size: 16, seed: 7, baseColor: 0xffffff });

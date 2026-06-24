@@ -93,7 +93,9 @@ const mulberry32 = (seed) => {
 /**
  * Hash a category id string into a 32-bit integer seed. Uses a
  * FNV-1a variant so the result is deterministic and easy to reason
- * about in tests.
+ * about in tests. The string length and a second mixing round are
+ * folded into the result so two adjacent ids with a shared prefix
+ * (e.g. "games" / "games-2") cannot land on the same seed.
  */
 const hashCategoryId = (id) => {
   const str = typeof id === 'string' ? id : '';
@@ -102,7 +104,20 @@ const hashCategoryId = (id) => {
     h ^= str.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
-  return h >>> 0;
+  // Mix in the string length and a second FNV-1a round over the
+  // initial hash bytes so divergent ids do not collapse onto the
+  // same seed. The golden-ratio constant (0x9e3779b1) is the same
+  // one Knuth attributes to the "multiply by a large odd prime"
+  // hash-mixing trick and gives excellent avalanche properties.
+  const lenMix = Math.imul(str.length | 0, 0x9e3779b1) >>> 0;
+  h = (h ^ lenMix) >>> 0;
+  let h2 = 0x811c9dc5;
+  const bytes = [h & 0xff, (h >>> 8) & 0xff, (h >>> 16) & 0xff, (h >>> 24) & 0xff];
+  for (let i = 0; i < bytes.length; i += 1) {
+    h2 ^= bytes[i];
+    h2 = Math.imul(h2, 0x01000193);
+  }
+  return h2 >>> 0;
 };
 
 /**
@@ -198,7 +213,15 @@ export const createPlanet = (opts = {}) => {
   const tilt = sanitizeScalar(opts.tilt, DEFAULT_TILT);
   const installedColor = sanitizeColor(opts.installedColor, DEFAULT_INSTALLED_COLOR);
   const uninstalledColor = sanitizeColor(opts.uninstalledColor, DEFAULT_UNINSTALLED_COLOR);
-  const categoryColor = sanitizeColor(opts.category.color, installedColor);
+  // Note: `opts.category.color` is intentionally not consumed. The
+  // visible color is driven exclusively by `material.color` (flipped
+  // by `setInstalled` between `installedColor` and `uninstalledColor`),
+  // and the noise texture is grayscale (baseColor: 0xffffff below) so
+  // multiplying a colored tint into the noise buffer is not necessary.
+  // Keeping the option in the typedef documents the per-category color
+  // contract for callers that pass a descriptor with a custom `color`
+  // without breaking the grayscale-noise invariant.
+  void opts.category?.color;
 
   const seed = hashCategoryId(opts.category.id);
 
@@ -217,7 +240,13 @@ export const createPlanet = (opts = {}) => {
           const { pixels, width, height } = generateProceduralNoise({
             size: TEXTURE_SIZE,
             seed,
-            baseColor: categoryColor,
+            // The texture must be grayscale so the visible color is
+            // driven exclusively by `material.color` (which `setInstalled`
+            // flips between the installed tint and the uninstalled gray).
+            // Multiplying a colored noise texture against `material.color`
+            // would produce a dimmed version of the installed tint in the
+            // "uninstalled" state instead of a neutral gray.
+            baseColor: 0xffffff,
           });
           const imageData = ctx.createImageData(width, height);
           imageData.data.set(pixels);

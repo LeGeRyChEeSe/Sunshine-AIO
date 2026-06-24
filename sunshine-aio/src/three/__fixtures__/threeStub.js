@@ -89,6 +89,7 @@ export const createThreeStub = ({ vi }) => {
     constructor() {
       this.name = '';
       this.children = [];
+      this.parent = null;
       this.position = {
         x: 0,
         y: 0,
@@ -117,10 +118,18 @@ export const createThreeStub = ({ vi }) => {
     }
     add(child) {
       this.children.push(child);
+      if (child && typeof child === 'object') {
+        child.parent = this;
+      }
     }
     remove(child) {
       const idx = this.children.indexOf(child);
-      if (idx !== -1) this.children.splice(idx, 1);
+      if (idx !== -1) {
+        this.children.splice(idx, 1);
+        if (child && typeof child === 'object') {
+          child.parent = null;
+        }
+      }
     }
   }
 
