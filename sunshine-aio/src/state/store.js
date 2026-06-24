@@ -650,10 +650,7 @@ export const createAppStore = (opts = {}) => {
             set((state) => {
               const sanitized = sanitizeWorldConfig({
                 ...state.worldConfig,
-                seed:
-                  forcedSeed !== null
-                    ? forcedSeed
-                    : pickFreshSeed(state.worldConfig.seed, ts),
+                seed: forcedSeed !== null ? forcedSeed : pickFreshSeed(state.worldConfig.seed, ts),
                 lastRegeneratedAt: ts,
                 regenerated: true,
               });

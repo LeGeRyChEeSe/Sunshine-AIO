@@ -15,11 +15,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createJSONStorage } from 'zustand/middleware';
-import {
-  createPersistence,
-  createMemoryStore,
-  PERSIST_NAMESPACE,
-} from './persistence.js';
+import { createPersistence, createMemoryStore, PERSIST_NAMESPACE } from './persistence.js';
 import { DEFAULT_WORLD_CONFIG } from './defaults.js';
 import { createAppStore, createMemoryStorage, APP_VIEW } from './store.js';
 
@@ -292,9 +288,9 @@ describe('state/persistence.js (Story 2-4)', () => {
     });
 
     it('mirrors categories through the persistence adapter', async () => {
-      store.getState().setCategories([
-        { id: 'games', name: 'Games', color: 0x4fc3f7, installed: true },
-      ]);
+      store
+        .getState()
+        .setCategories([{ id: 'games', name: 'Games', color: 0x4fc3f7, installed: true }]);
       await new Promise((resolve) => setTimeout(resolve, 10));
       store.persistenceFlush?.();
       const persisted = persistence.getCategories();

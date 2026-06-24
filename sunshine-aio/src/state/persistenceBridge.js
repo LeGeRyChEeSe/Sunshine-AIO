@@ -154,8 +154,7 @@ const sanitizeWorldConfig = (next, fallback) => {
       : typeof next.lastRegeneratedAt === 'number' && Number.isFinite(next.lastRegeneratedAt)
         ? next.lastRegeneratedAt
         : safe.lastRegeneratedAt;
-  const regenerated =
-    typeof next.regenerated === 'boolean' ? next.regenerated : !!safe.regenerated;
+  const regenerated = typeof next.regenerated === 'boolean' ? next.regenerated : !!safe.regenerated;
   return { seed, lastRegeneratedAt, regenerated };
 };
 
@@ -195,10 +194,7 @@ export const installPersistenceBridge = (store, adapter, opts = {}) => {
   try {
     const onDisk = adapter.getWorldConfig();
     store.setState((state) => ({
-      worldConfig: sanitizeWorldConfig(
-        { ...state.worldConfig, ...onDisk },
-        state.worldConfig
-      ),
+      worldConfig: sanitizeWorldConfig({ ...state.worldConfig, ...onDisk }, state.worldConfig),
     }));
   } catch (err) {
     persistenceLogger('[Store] persistence hydration failed', {
@@ -253,9 +249,7 @@ export const installPersistenceBridge = (store, adapter, opts = {}) => {
   const unsubscribe = store.subscribe((state) => {
     const worldConfig = state.worldConfig;
     const installedApps = state.installState ? state.installState.installedApps : null;
-    const navigationHistory = state.navigationState
-      ? state.navigationState.history
-      : null;
+    const navigationHistory = state.navigationState ? state.navigationState.history : null;
     const coreTools = state.coreTools;
     const categories = state.categories;
     const dirty =

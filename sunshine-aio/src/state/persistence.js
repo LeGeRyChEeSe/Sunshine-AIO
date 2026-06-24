@@ -56,7 +56,11 @@
 import Store from 'electron-store';
 
 import { DEFAULT_CATEGORIES } from './store.js';
-import { DEFAULT_WORLD_CONFIG, DEFAULT_INSTALLED_APPS, DEFAULT_NAVIGATION_HISTORY } from './defaults.js';
+import {
+  DEFAULT_WORLD_CONFIG,
+  DEFAULT_INSTALLED_APPS,
+  DEFAULT_NAVIGATION_HISTORY,
+} from './defaults.js';
 import { pickFreshSeed, coerceSeed } from './seed.js';
 
 /**
@@ -546,8 +550,7 @@ export const createPersistence = (opts = {}) => {
       // the shared counter so the bit math in `pickFreshSeed` always
       // operates on a value it can safely encode.
       const forcedSeed = coerceSeed(opts.seed);
-      const seed =
-        forcedSeed !== null ? forcedSeed : pickFreshSeed(current.seed, now());
+      const seed = forcedSeed !== null ? forcedSeed : pickFreshSeed(current.seed, now());
       const next = {
         seed,
         lastRegeneratedAt: now(),
