@@ -50,6 +50,27 @@
 
 import { WebGLRenderer, Scene, PerspectiveCamera, Color, Clock } from 'three';
 
+/**
+ * Brand stamped on objects returned by `createPlanetsForCategories`.
+ * `setPlanets(factory)` rejects any object without this brand so a
+ * compromised renderer (e.g. via a future supply-chain bug in a
+ * dependency) cannot impersonate a planet factory whose
+ * `setInstalled` might call `ipcRenderer` or otherwise escape the
+ * renderer's sandbox. The Story 1-1 IPC whitelist is empty so this is
+ * theoretical today, but defense in depth is cheap at this scale.
+ *
+ * Symbols cannot be forged across module boundaries — a faked factory
+ * built in user code cannot reproduce this exact Symbol value because
+ * `Symbol('PlanetFactory')` returns a unique value every time it is
+ * called, even with the same description. Only the factory module
+ * (which imports the same `PLANET_FACTORY_BRAND` export) can stamp it.
+ *
+ * Exported so `planetFactory.js` can stamp the brand on its returned
+ * object and so tests can assert the contract without reaching into
+ * private state.
+ */
+export const PLANET_FACTORY_BRAND = Symbol('PlanetFactory');
+
 const DEFAULT_FOV = 60;
 const DEFAULT_NEAR = 0.1;
 const DEFAULT_FAR = 1000;
@@ -536,8 +557,24 @@ export const createScene = (opts) => {
    * `update(delta, elapsed)` is wired through the same `addUpdater`
    * registry used by the sun. Replaces any prior factory. Returns the
    * disposed/unregistered prior factory if there was one.
+   *
+   * Defense in depth: `factory` must carry the `PLANET_FACTORY_BRAND`
+   * symbol stamped on the object returned by
+   * `createPlanetsForCategories`. A faked factory (e.g. one whose
+   * `setInstalled` calls `ipcRenderer` or escapes the renderer
+   * sandbox via a future supply-chain compromise) cannot reproduce
+   * the symbol because `Symbol('PlanetFactory')` returns a unique
+   * value at every call site — only the factory module that imports
+   * this constant can stamp it. A rejected factory is logged and
+   * ignored so the render loop never wires it.
    */
   const setPlanets = (factory) => {
+    if (factory && (typeof factory !== 'object' || factory[PLANET_FACTORY_BRAND] !== true)) {
+      logger('[Three] setPlanets: rejecting factory without PLANET_FACTORY_BRAND', {
+        type: typeof factory,
+      });
+      return null;
+    }
     const previous = planetFactoryInstance;
     if (previous) {
       // Tear down the prior factory's updater handle first so the loop

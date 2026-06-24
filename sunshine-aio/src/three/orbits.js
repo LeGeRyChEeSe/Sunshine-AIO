@@ -129,12 +129,13 @@ export const createOrbits = (opts = {}) => {
     const line = new Line(geometry, material);
     line.name = `Orbit:${planet.id ?? i}`;
     // Rotate the dash pattern per-orbit so two planets with the
-    // identical radius don't draw pixel-aligned dashes.
-    if (typeof planet.phase === 'number' && planet.phase !== 0) {
-      // No-op in this implementation: we already include the phase
-      // offset in the geometry vertices, so the dash pattern is
-      // already offset. Kept as a hook for a future caller that
-      // wants to rotate the line itself.
+    // identical radius don't draw pixel-aligned dashes. The phase
+    // is sanitised to a finite number so an inherited NaN cannot
+    // silently produce a non-rotating line (NaN * 1 === NaN, which
+    // some renderers happily clamp to 0; we'd rather log and
+    // fall back to no rotation than be invisible).
+    if (typeof planet.phase === 'number' && Number.isFinite(planet.phase) && planet.phase !== 0) {
+      line.rotation.y = planet.phase;
     }
     group.add(line);
     lines.push({ geometry, material, line, orbitRadius: planet.orbitRadius });

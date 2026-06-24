@@ -32,11 +32,25 @@
 
 import { createPlanet, PLANET_DEFAULTS } from './planet.js';
 import { createOrbits } from './orbits.js';
+import { PLANET_FACTORY_BRAND } from './setup.js';
 
 const MIN_ORBIT_RADIUS = 3.0;
 const ORBIT_SPACING = 1.5;
 const PHASE_SPREAD = Math.PI * 2;
 const DEFAULT_INNER_RADIUS = 2.8;
+
+/**
+ * Coerce an arbitrary value into a finite scalar. Mirrors the sanitizer
+ * used by the planet constructor — without it, an override like
+ * `{ phase: NaN }` would silently propagate to `Math.cos(NaN) = NaN`
+ * and the pivot's position would corrupt on the very first tick.
+ */
+const sanitizeScalar = (value, fallback) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  return fallback;
+};
 
 /**
  * Derive an orbital slot (radius, phase, spin, revolution) from the
@@ -45,22 +59,22 @@ const DEFAULT_INNER_RADIUS = 2.8;
  * round-trips the whole planet descriptor anyway, including any future
  * manual overrides). When a category carries its own `orbitRadius` /
  * `phase` / `spinSpeed` / `revolutionSpeed`, those win.
+ *
+ * All numeric overrides flow through `sanitizeScalar` so non-finite
+ * inputs (NaN, Infinity, strings, objects) collapse onto the
+ * deterministic default instead of corrupting the orbital maths.
  */
 const computeSlot = (index, total, override = {}) => {
-  const orbitRadius =
-    typeof override.orbitRadius === 'number' && override.orbitRadius > 0
-      ? override.orbitRadius
-      : MIN_ORBIT_RADIUS + index * ORBIT_SPACING;
-  const phase =
-    typeof override.phase === 'number'
-      ? override.phase
-      : (index / Math.max(1, total)) * PHASE_SPREAD;
-  const spinSpeed =
-    typeof override.spinSpeed === 'number' ? override.spinSpeed : PLANET_DEFAULTS.spinSpeed;
-  const revolutionSpeed =
-    typeof override.revolutionSpeed === 'number'
-      ? override.revolutionSpeed
-      : PLANET_DEFAULTS.revolutionSpeed + index * 0.01;
+  const orbitRadius = sanitizeScalar(
+    override.orbitRadius > 0 ? override.orbitRadius : NaN,
+    MIN_ORBIT_RADIUS + index * ORBIT_SPACING
+  );
+  const phase = sanitizeScalar(override.phase, (index / Math.max(1, total)) * PHASE_SPREAD);
+  const spinSpeed = sanitizeScalar(override.spinSpeed, PLANET_DEFAULTS.spinSpeed);
+  const revolutionSpeed = sanitizeScalar(
+    override.revolutionSpeed,
+    PLANET_DEFAULTS.revolutionSpeed + index * 0.01
+  );
   return { orbitRadius, phase, spinSpeed, revolutionSpeed };
 };
 
@@ -126,15 +140,49 @@ export const createPlanetsForCategories = (opts = {}) => {
   const planetById = new Map();
   const skipped = [];
 
+  // Detect innerRadius clamps BEFORE we start placing planets. If the
+  // caller's `innerRadius` is greater than the smallest computed slot
+  // (the very first planet's default orbit radius), `Math.max` would
+  // collapse multiple planets onto the same orbit. Log a warning so the
+  // mismatch is surfaced; also surface a warning when an explicit
+  // per-category `orbitRadius` is below innerRadius so the clamp is
+  // visible at the call site rather than silently swallowing layout.
+  const totalCategories = opts.categories.length;
+  const firstSlotRadius = MIN_ORBIT_RADIUS;
+  if (innerRadius > firstSlotRadius) {
+    logger(
+      '[PlanetFactory] innerRadius is larger than the smallest default orbit; ' +
+        'planets will be clamped up to innerRadius and may share orbits. ' +
+        'Pass a smaller innerRadius (default 2.8) or larger ORBIT_SPACING.',
+      {
+        innerRadius,
+        firstDefaultRadius: firstSlotRadius,
+        categoryCount: totalCategories,
+      }
+    );
+  }
+
   opts.categories.forEach((category, index) => {
     if (!category || typeof category !== 'object' || !category.id) {
       skipped.push({ index, reason: 'missing-id' });
       logger('[PlanetFactory] Skipping category with no id', { index });
       return;
     }
-    const slot = computeSlot(index, opts.categories.length, category);
+    const slot = computeSlot(index, totalCategories, category);
     // Don't draw orbits inside the sun's halo.
     const orbitRadius = Math.max(innerRadius, slot.orbitRadius);
+    if (
+      typeof category.orbitRadius === 'number' &&
+      Number.isFinite(category.orbitRadius) &&
+      category.orbitRadius > 0 &&
+      category.orbitRadius < innerRadius
+    ) {
+      logger('[PlanetFactory] Category orbitRadius is below innerRadius; clamped up.', {
+        id: category.id,
+        requested: category.orbitRadius,
+        innerRadius,
+      });
+    }
     const planet = createPlanet({
       THREE,
       category,
@@ -257,7 +305,7 @@ export const createPlanetsForCategories = (opts = {}) => {
 
   const isDisposed = () => disposed;
 
-  return {
+  const factory = {
     group: rootGroup,
     planets,
     orbits,
@@ -268,6 +316,24 @@ export const createPlanetsForCategories = (opts = {}) => {
     isDisposed,
     skipped,
   };
+  // Stamp the PLANET_FACTORY_BRAND so the scene controller's
+  // `setPlanets(factory)` can verify the object originated from this
+  // module. Symbols cannot be reproduced across module boundaries, so
+  // a faked factory cannot impersonate us — see the SECURITY note in
+  // setup.js for the threat model.
+  try {
+    Object.defineProperty(factory, PLANET_FACTORY_BRAND, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  } catch {
+    // Some environments (very old engines, frozen objects) refuse
+    // defineProperty after the literal is created. The brand is a
+    // defense-in-depth check; falling back silently is acceptable.
+  }
+  return factory;
 };
 
 export { computeSlot };

@@ -749,9 +749,21 @@ export const createAppStore = (opts = {}) => {
            * This keeps the planet colours in sync with the install
            * state without forcing every installer to know about
            * categories.
+           *
+           * Defensive validation: `categoryId` strings carried by
+           * installed apps are intersected with the set of known
+           * category ids before they participate in the sync. A typo
+           * or stale `categoryId` (e.g. "game" instead of "games")
+           * would otherwise silently mark a non-existent category as
+           * installed — and because the planet factory only knows
+           * about the categories passed at construction time, the
+           * mismatch is invisible to the renderer. We log a warning
+           * for each unmatched id so a developer can spot the drift
+           * without it ever affecting the 3D scene.
            */
           syncCategoriesFromInstalls: () =>
             set((state) => {
+              const knownCategoryIds = new Set(state.categories.map((entry) => entry.id));
               const installedIds = new Set(
                 state.installState.installedApps.map((entry) => entry.id)
               );
@@ -760,6 +772,27 @@ export const createAppStore = (opts = {}) => {
                   .map((entry) => entry.categoryId)
                   .filter((id) => typeof id === 'string')
               );
+              // Surface unmatched `categoryId` values so stale or
+              // mistyped entries don't silently mark a non-existent
+              // category as installed. The match against `installedIds`
+              // uses real app ids, which are not category ids and
+              // therefore cannot be matched against `knownCategoryIds`
+              // — only `categoryId` references are validated here.
+              const unmatchedCategoryIds = new Set();
+              for (const id of installedCategoryIds) {
+                if (!knownCategoryIds.has(id) && !installedIds.has(id)) {
+                  unmatchedCategoryIds.add(id);
+                }
+              }
+              if (unmatchedCategoryIds.size > 0) {
+                console.warn(
+                  '[Store] syncCategoriesFromInstalls: installed apps reference ' +
+                    'unknown categoryId(s): ' +
+                    Array.from(unmatchedCategoryIds).join(', ') +
+                    '. They will be ignored. Known category ids: ' +
+                    Array.from(knownCategoryIds).join(', ')
+                );
+              }
               let mutated = false;
               const next = state.categories.map((entry) => {
                 const flag = installedIds.has(entry.id) || installedCategoryIds.has(entry.id);

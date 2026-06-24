@@ -306,6 +306,11 @@ export const createPlanet = (opts = {}) => {
   let disposed = false;
 
   const update = (deltaSeconds = 0, elapsedSeconds) => {
+    // Disposed check MUST come first — otherwise we'd waste the dt
+    // computation and increment the closure-local `elapsed` variable
+    // on every tick even though the loop is supposed to no-op after
+    // dispose(). This is the per-planet hot path; the few cycles saved
+    // add up across the entire solar system.
     if (disposed) {
       return;
     }

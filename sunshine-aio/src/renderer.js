@@ -106,6 +106,7 @@ try {
   // the 3D scene through `setPlanetInstalled`. The factory is owned
   // by the controller: dispose() will release its geometries and
   // detach the root group when the window closes.
+  const store = useAppStore;
   const planetsFactory = createPlanetsForCategories({
     THREE,
     categories: store.getState().categories,
@@ -115,7 +116,6 @@ try {
 
   sceneController.start();
 
-  const store = useAppStore;
   store.getState().markSceneInitialized(true);
 
   // Push the initial core-tools state into the sun. Subscribing via
