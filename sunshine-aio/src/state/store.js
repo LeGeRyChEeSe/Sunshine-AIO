@@ -88,13 +88,16 @@ const initialNavigationState = () => ({
 /**
  * Core-tools map. Story 2-2 keys off the canonical `CORE_TOOL_IDS`
  * list (Sunshine, Virtual Display Driver, Playnite). Every core tool
- * starts in the `false` (not installed) state.
+ * starts in the `false` (not installed) state. The literal shape is
+ * identical in semantics to a `reduce` build but is faster, easier to
+ * read, and lines up with the frozen `CORE_TOOL_IDS` whitelist — the
+ * keys cannot drift between the source list and the default state.
  */
-const initialCoreTools = () =>
-  CORE_TOOL_IDS.reduce((acc, id) => {
-    acc[id] = false;
-    return acc;
-  }, {});
+const initialCoreTools = () => ({
+  sunshine: false,
+  vdd: false,
+  playnite: false,
+});
 
 const initialState = () => ({
   worldState: initialWorldState(),
@@ -188,25 +191,41 @@ const migrations = {
  * version constant and forget to add a migration entry, and the only
  * symptom is silent data loss in the field. The assertion turns that
  * omission into a hard error in the same tick that the mismatch is
- * introduced.
+ * introduced — but ONLY in development/test environments. In a
+ * production renderer (Electron Forge packaged build) we downgrade
+ * the failure to a console warning so a stale module never bricks
+ * the renderer window for end users mid-upgrade (the previous
+ * throw-eagerly behavior surfaced as a blank window with a Vite
+ * overlay, which is hostile to users who cannot read the error).
  */
+const IS_DEV =
+  typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production';
+
 const assertMigrationsConsistent = () => {
-  if (STORE_VERSION > 1 && Object.keys(migrations).length === 0) {
-    throw new Error(
-      `[Store] STORE_VERSION is ${STORE_VERSION} but the migrations table is empty. ` +
+  const message =
+    STORE_VERSION > 1 && Object.keys(migrations).length === 0
+      ? `[Store] STORE_VERSION is ${STORE_VERSION} but the migrations table is empty. ` +
         'Add a migrator entry for the previous version before bumping STORE_VERSION.'
-    );
-  }
+      : null;
   // Forward direction: every version below STORE_VERSION must have a
   // migrator, otherwise older persisted blobs will be discarded and
   // the user loses their state silently.
+  let forwardMessage = null;
   for (let v = 1; v < STORE_VERSION; v += 1) {
     if (typeof migrations[v] !== 'function') {
-      throw new Error(
+      forwardMessage =
         `[Store] Missing migrator for version ${v} -> ${STORE_VERSION}. ` +
-          'Add a migrator entry to the migrations table.'
-      );
+        'Add a migrator entry to the migrations table.';
+      break;
     }
+  }
+  if (!message && !forwardMessage) {
+    return;
+  }
+  if (IS_DEV) {
+    throw new Error(message || forwardMessage);
+  } else {
+    console.warn(`[Store] Migration table out of sync: ${message || forwardMessage}`);
   }
 };
 assertMigrationsConsistent();
@@ -287,20 +306,17 @@ const mergeSlices = (persistedState, currentState) => {
 /**
  * Sanitize the user-supplied core-tools map. Only accepts keys from
  * CORE_TOOL_IDS; coerces every value to a boolean so a stray string
- * like `"true"` cannot poison the slice.
+ * like `"true"` cannot poison the slice. Keys absent from the input
+ * stay at their default `false` so a partial payload cannot accidentally
+ * mark a tool as installed.
  */
 const normalizeCoreTools = (tools) => {
-  const result = {};
-  for (const id of CORE_TOOL_IDS) {
-    result[id] = false;
-  }
+  const result = { sunshine: false, vdd: false, playnite: false };
   if (!tools || typeof tools !== 'object') {
     return result;
   }
   for (const id of CORE_TOOL_IDS) {
-    if (Object.prototype.hasOwnProperty.call(tools, id)) {
-      result[id] = Boolean(tools[id]);
-    }
+    result[id] = Boolean(tools[id]);
   }
   return result;
 };

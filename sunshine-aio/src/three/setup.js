@@ -117,7 +117,7 @@ export const createFpsMonitor = (opts = {}) => {
       return;
     }
     intervalId = setInterval(() => flush(false), logIntervalMs);
-    // Allow Node to exit cleanly when this monitor is used in a test.
+    // unref to keep Node tests from hanging on the interval.
     if (typeof intervalId === 'object' && intervalId && 'unref' in intervalId) {
       intervalId.unref();
     }
@@ -296,10 +296,13 @@ export const createScene = (opts) => {
   // by an external factory (`createSun`) which returns a clean,
   // JSDoc-defined public surface — we must NOT mutate that surface
   // with internal double-underscore properties. Storing the unregister
-  // function in a WeakMap keyed by the sun instance keeps the bridge
-  // encapsulated inside the scene controller and lets GC reclaim both
-  // entries together when the sun is collected.
-  const sunUnregisterByInstance = new WeakMap();
+  // function in a Map keyed by the sun instance keeps the bridge
+  // encapsulated inside the scene controller. The previous WeakMap
+  // was misleadingly documented as "let GC reclaim both entries" but
+  // the unregister handle held a closure that kept the sun reachable
+  // until `setSun` or `dispose` cleared it; a plain Map expresses the
+  // same ownership model without the surprise.
+  const sunUnregisterByInstance = new Map();
 
   let rafHandle = null;
   let running = false;
@@ -480,11 +483,10 @@ export const createScene = (opts) => {
     sunInstance = sun || null;
     if (sunInstance) {
       // Register the sun's per-frame driver with the loop. The returned
-      // unregister is stashed in a controller-local WeakMap keyed by
-      // the sun instance — NOT on the sun itself. Mutating the public
+      // unregister is stashed in a controller-local Map keyed by the
+      // sun instance — NOT on the sun itself. Mutating the public
       // surface of an external factory's return value would be a leaky
-      // contract; the WeakMap keeps the bridge private to this
-      // controller and lets GC reclaim both entries together.
+      // contract; the Map keeps the bridge private to this controller.
       const unregister = addUpdater((delta, elapsed) => {
         if (typeof sunInstance.update === 'function') {
           sunInstance.update(delta, elapsed);
@@ -519,7 +521,7 @@ export const createScene = (opts) => {
     fpsMonitor.dispose();
     // Dispose the sun first so it can detach its updater before the
     // updater registry is cleared. The unregister handle is read
-    // from the controller-local WeakMap (NOT from a property on the
+    // from the controller-local Map (NOT from a property on the
     // sun), so the public surface of the sun is left untouched.
     if (sunInstance) {
       const unregister = sunUnregisterByInstance.get(sunInstance);

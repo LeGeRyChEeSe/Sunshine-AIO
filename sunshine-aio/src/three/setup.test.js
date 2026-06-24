@@ -22,6 +22,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createThreeStub } from './__fixtures__/threeStub.js';
 
 // Mock the 'three' module BEFORE importing the SUT so the renderer
 // uses our stubs instead of trying to allocate a WebGL context.
@@ -607,91 +608,13 @@ describe('three/setup.js (Story 2-1)', () => {
    */
   describe('sun integration (Story 2-2)', () => {
     /**
-     * Minimal THREE stub for `createSun`. Mirrors the same shape used
-     * by sun.test.js but kept inline so the integration block stays
-     * self-contained — if sun.test.js drifts, this block still
-     * exercises the controller's wiring contract.
+     * Minimal THREE stub for `createSun`. Lives in a shared fixture
+     * (`__fixtures__/threeStub.js`) so sun.test.js and this block
+     * cannot drift — a future assertion that touches color state
+     * directly would have silently received `undefined` if the two
+     * stubs had diverged.
      */
-    const buildThreeStub = () => {
-      class Color {
-        constructor(value) {
-          this.value = value;
-        }
-        // Mirrors the production Color surface that the sun now
-        // relies on (sun.js's setInstalledTools calls
-        // material.color.set(hex) in place to avoid allocations).
-        set(value) {
-          this.value = value;
-          return this;
-        }
-      }
-      class Geometry {
-        constructor() {
-          this.dispose = vi.fn();
-        }
-      }
-      class Material {
-        constructor(opts = {}) {
-          this.opts = opts;
-          this.dispose = vi.fn();
-          this.emissiveIntensity = opts.emissiveIntensity ?? 1;
-          this.color = opts.color !== undefined ? new Color(opts.color) : undefined;
-          this.emissive = opts.emissive !== undefined ? new Color(opts.emissive) : undefined;
-        }
-      }
-      class Object3D {
-        constructor() {
-          this.name = '';
-          this.children = [];
-          this.position = {
-            x: 0,
-            y: 0,
-            z: 0,
-            set(x, y, z) {
-              this.x = x;
-              this.y = y;
-              this.z = z;
-            },
-          };
-          this.scale = {
-            x: 1,
-            y: 1,
-            z: 1,
-            set(x, y, z) {
-              this.x = x;
-              this.y = y;
-              this.z = z;
-            },
-          };
-        }
-        add(child) {
-          this.children.push(child);
-        }
-        remove(child) {
-          const idx = this.children.indexOf(child);
-          if (idx !== -1) this.children.splice(idx, 1);
-        }
-      }
-      class Mesh extends Object3D {
-        constructor(geometry, material) {
-          super();
-          this.geometry = geometry;
-          this.material = material;
-        }
-      }
-      class SphereGeometry extends Geometry {}
-      class MeshStandardMaterial extends Material {}
-      class MeshBasicMaterial extends Material {}
-      return {
-        Object3D,
-        Mesh,
-        SphereGeometry,
-        MeshStandardMaterial,
-        MeshBasicMaterial,
-        Color,
-        BackSide: Symbol('BackSide'),
-      };
-    };
+    const buildThreeStub = () => createThreeStub({ vi });
 
     it('setSun stores the instance and getSun returns the same reference', () => {
       const controller = createScene(baseOpts());

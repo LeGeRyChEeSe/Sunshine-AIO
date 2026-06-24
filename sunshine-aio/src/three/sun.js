@@ -70,8 +70,11 @@ const TWO_PI = Math.PI * 2;
  *   - string: a CSS hex color matching /^#[0-9a-f]{3,8}$/i (3, 4, 6,
  *     or 8 hex digits). Anything else falls back rather than throw
  *     deep inside a material constructor.
- *   - object with a `getHex` / `getHexString` method: assumed to be
- *     a real `THREE.Color` instance, returned as-is.
+ *
+ * The string branch is kept so the defaults table can mirror a future
+ * caller that prefers CSS hexes; production setInstalledTools always
+ * feeds sanitized integers, so the path is dormant in the hot path but
+ * still exercised by the test suite.
  *
  * @param {unknown} value
  * @param {number} fallback
@@ -80,13 +83,7 @@ const sanitizeColor = (value, fallback) => {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 0xffffff) {
     return value | 0;
   }
-  if (typeof value === 'string') {
-    if (/^#[0-9a-f]{3,8}$/i.test(value)) {
-      return value;
-    }
-    return fallback;
-  }
-  if (value && typeof value === 'object' && typeof value.getHex === 'function') {
+  if (typeof value === 'string' && /^#[0-9a-f]{3,8}$/i.test(value)) {
     return value;
   }
   return fallback;
@@ -247,6 +244,21 @@ export const createSun = (opts = {}) => {
     return acc;
   }, {});
 
+  // Cached membership lookup so unknown-tool queries don't rebuild
+  // a Set per call. The whitelist is the same CORE_TOOLS export used
+  // by setInstalledTools — unknown names (e.g. a typo "sunshne") get
+  // surfaced through the injected logger and return `false`.
+  const knownToolNames = new Set(CORE_TOOLS);
+  const warnUnknownTool = (source, name) => {
+    logger('[Sun] Unknown tool id ignored', { source, name });
+  };
+
+  // Default emissive intensity applied to every inactive satellite at
+  // construction time. The "installed" branch writes 2.0 in `setInstalledTools`
+  // on state flip; the per-frame loop trusts that value until the next flip.
+  const INACTIVE_EMISSIVE_INTENSITY = 0.6;
+  const ACTIVE_EMISSIVE_INTENSITY = 2.0;
+
   // Pulse bookkeeping: keep the baseline scale so `setSize` or a future
   // transform can safely overwrite `group.scale` without losing the
   // pulse rhythm.
@@ -273,13 +285,17 @@ export const createSun = (opts = {}) => {
       Math.sin(angle * 0.5) * 0.15, // gentle vertical wobble for depth
       Math.sin(angle) * orbitRadius
     );
-    // Brighten the emissive a touch so the active indicator visually
-    // pops without requiring a separate point light. Installed tools
-    // get a stronger boost (2.0) than the inactive default (0.6) so
-    // the "core tools indicator" is clearly distinguishable at a
-    // glance — a literal 1.4 vs 0.6 swap was too subtle to read as
-    // "installed" against the warm sun glow.
-    satellite.material.emissiveIntensity = satellite.installed ? 2.0 : 0.6;
+    // Defensive re-stamp: the round-1 hot path in `setInstalledTools`
+    // only writes emissiveIntensity on the frame the installed flag
+    // actually flips, so any non-Zustand frame (RAF ticks, manual
+    // calls) still needs a stable value. We re-derive from the current
+    // `installed` flag rather than trusting a cached field so a future
+    // caller that mutates `satellite.installed` directly still renders
+    // correctly. The branch is cheap (no allocation) and never touches
+    // material.color.
+    satellite.material.emissiveIntensity = satellite.installed
+      ? ACTIVE_EMISSIVE_INTENSITY
+      : INACTIVE_EMISSIVE_INTENSITY;
   };
 
   const update = (deltaSeconds = 0, elapsedSeconds) => {
@@ -344,6 +360,15 @@ export const createSun = (opts = {}) => {
     if (!tools || typeof tools !== 'object') {
       return;
     }
+    // Surface unknown keys (typos, legacy callers) via the injected
+    // logger. The slice itself is still dropped silently to keep the
+    // hot-path allocation-free, but the developer-facing signal lands
+    // somewhere visible so a future bug doesn't go undetected.
+    for (const key of Object.keys(tools)) {
+      if (!knownToolNames.has(key)) {
+        warnUnknownTool('setInstalledTools', key);
+      }
+    }
     let changed = false;
     for (const name of CORE_TOOLS) {
       const next = Boolean(tools[name]);
@@ -369,7 +394,9 @@ export const createSun = (opts = {}) => {
       const hex = next ? activeColor : inactiveColor;
       satellite.material.color.set(hex);
       satellite.material.emissive.set(hex);
-      satellite.material.emissiveIntensity = next ? 2.0 : 0.6;
+      satellite.material.emissiveIntensity = next
+        ? ACTIVE_EMISSIVE_INTENSITY
+        : INACTIVE_EMISSIVE_INTENSITY;
     }
     if (changed) {
       logger('[Sun] Installed tools updated', { ...installedState });
@@ -377,7 +404,8 @@ export const createSun = (opts = {}) => {
   };
 
   const isToolInstalled = (name) => {
-    if (!Object.prototype.hasOwnProperty.call(installedState, name)) {
+    if (!knownToolNames.has(name)) {
+      warnUnknownTool('isToolInstalled', name);
       return false;
     }
     return Boolean(installedState[name]);

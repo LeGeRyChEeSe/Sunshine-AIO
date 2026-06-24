@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createThreeStub } from './__fixtures__/threeStub.js';
 
 /**
  * Build a minimal THREE stub. We need just enough of the Three.js
@@ -32,103 +33,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  *   - A Color class that captures the numeric / string value passed in.
  *   - The constant `BackSide` — only needs to be a unique symbol so
  *     `material.side = THREE.BackSide` round-trips correctly.
+ *
+ * Shared with the scene-controller integration tests via
+ * `__fixtures__/threeStub.js` so both suites cannot drift apart.
  */
-const createThreeStub = () => {
-  class Color {
-    constructor(value) {
-      this.value = value;
-    }
-    // Real Three.js Color exposes a `set(value)` mutator that
-    // overwrites the instance in place. The production code path
-    // for `setInstalledTools` uses `material.color.set(hex)` to avoid
-    // allocating a new Color on every state flip, so the stub must
-    // support the same surface. Returning `this` mirrors the real
-    // API and lets callers chain.
-    set(value) {
-      this.value = value;
-      return this;
-    }
-  }
-
-  class Geometry {
-    constructor() {
-      this.dispose = vi.fn();
-    }
-  }
-
-  class Material {
-    constructor(opts = {}) {
-      this.opts = opts;
-      this.dispose = vi.fn();
-      this.emissiveIntensity = opts.emissiveIntensity ?? 1;
-      this.color = opts.color !== undefined ? new Color(opts.color) : undefined;
-      this.emissive = opts.emissive !== undefined ? new Color(opts.emissive) : undefined;
-    }
-  }
-
-  class Object3D {
-    constructor() {
-      this.name = '';
-      this.children = [];
-      this.position = {
-        x: 0,
-        y: 0,
-        z: 0,
-        set(x, y, z) {
-          this.x = x;
-          this.y = y;
-          this.z = z;
-        },
-      };
-      this.scale = {
-        x: 1,
-        y: 1,
-        z: 1,
-        set(x, y, z) {
-          this.x = x;
-          this.y = y;
-          this.z = z;
-        },
-      };
-    }
-    add(child) {
-      this.children.push(child);
-    }
-    remove(child) {
-      const idx = this.children.indexOf(child);
-      if (idx !== -1) this.children.splice(idx, 1);
-    }
-  }
-
-  class Mesh extends Object3D {
-    constructor(geometry, material) {
-      super();
-      this.geometry = geometry;
-      this.material = material;
-    }
-  }
-
-  class SphereGeometry extends Geometry {}
-  class MeshStandardMaterial extends Material {}
-  class MeshBasicMaterial extends Material {}
-
-  return {
-    Object3D,
-    Mesh,
-    SphereGeometry,
-    MeshStandardMaterial,
-    MeshBasicMaterial,
-    Color,
-    BackSide: Symbol('BackSide'),
-  };
-};
+const buildThreeStub = () => createThreeStub({ vi });
 
 describe('three/sun.js (Story 2-2)', () => {
   let THREE;
   let sun;
 
   beforeEach(() => {
-    THREE = createThreeStub();
+    THREE = buildThreeStub();
     // Lazy import so the stub is ready before sun.js evaluates its
     // destructured imports. Vitest hoists vi.mock, but we prefer an
     // explicit factory import to keep the dependency wiring obvious.

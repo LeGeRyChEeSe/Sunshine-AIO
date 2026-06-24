@@ -120,16 +120,19 @@ try {
   });
 
   // Pin the initial view to the solar system so a brand-new install
-  // lands on the right screen instead of waiting for the first user
-  // interaction. We must wait for the persist middleware to rehydrate
-  // before reading navigationState.currentView, otherwise the snapshot
-  // above reflects the in-memory defaults (always SOLAR_SYSTEM) and we
-  // would clobber a saved view like SETTINGS or PLANET_DETAIL on every
-  // relaunch. We only force SOLAR_SYSTEM when the persisted view is
-  // missing or unrecognised — never when the user has explicitly chosen
-  // another view.
+  // lands on the right screen. Defers to the post-hydration callback
+  // when the persist API exposes it (so a saved SETTINGS view is not
+  // clobbered), and runs synchronously as a safety net for the
+  // already-hydrated case — setCurrentView is a no-op on the same
+  // view, so the second invocation is harmless. A flag guards the
+  // listener so rehydration does not re-fire it.
   const persistApi = store.persist;
+  let pinApplied = false;
   const pinInitialView = () => {
+    if (pinApplied) {
+      return;
+    }
+    pinApplied = true;
     const persistedView = store.getState().navigationState.currentView;
     if (!Object.values(APP_VIEW).includes(persistedView)) {
       store.getState().setCurrentView(APP_VIEW.SOLAR_SYSTEM);
@@ -137,26 +140,7 @@ try {
   };
   if (persistApi && typeof persistApi.onFinishHydration === 'function') {
     persistApi.onFinishHydration(pinInitialView);
-    if (typeof persistApi.hasHydrated === 'function' && persistApi.hasHydrated()) {
-      pinInitialView();
-    }
-  } else {
-    // No persist API exposed (shouldn't happen for our store, but be
-    // defensive): fall back to the old behavior.
-    pinInitialView();
   }
-  // Safety net for the sync-hydration case: zustand's `persist` middleware
-  // only invokes `onFinishHydration` listeners on the hydrating -> hydrated
-  // transition. For a singleton store whose storage is already a sync API
-  // (the createJSONStorage(() => createMemoryStorage()) path used in tests
-  // and the defaultStorage() path here), hydration may complete synchronously
-  // before the registration above runs — in which case the listener never
-  // fires. Also, if hydration is in flight when this code runs, the early
-  // `setCurrentView` would be overwritten once hydration lands. An
-  // unconditional `pinInitialView()` call is harmless for the in-progress
-  // case (it reads the post-hydration value once hydration settles, and the
-  // default `currentView` is SOLAR_SYSTEM so it is a no-op for the happy
-  // path) and it guarantees the synchronous case still pins correctly.
   pinInitialView();
 
   // Reference CORE_TOOLS to keep the import live (and silence the
