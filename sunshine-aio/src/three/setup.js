@@ -1,5 +1,5 @@
 /**
- * Three.js renderer setup for Sunshine AIO (Story 2-1 + Story 2-2 + Story 2-3).
+ * Three.js renderer setup for Sunshine AIO (Story 2-1 + Story 2-2 + Story 2-3 + Story 3-1).
  *
  * Owns the WebGL renderer, the Three.js Scene, a PerspectiveCamera, the
  * requestAnimationFrame loop, the resize handler, the FPS monitor, and the
@@ -29,6 +29,17 @@
  *     in the planet descriptor — not on the scene controller — so the
  *     persist middleware can round-trip it via `worldState.planets`.
  *   - `getPlanets()` exposes the planet factory (read-only surface).
+ *
+ * Story 3-1 additions:
+ *   - The scene holds an optional `scroll` controller built by
+ *     `createHorizontalScrollController` from `./scroll.js`. The
+ *     controller's per-frame `update(delta)` is wired through the
+ *     same `addUpdater` registry used by the sun and planets.
+ *   - `setScroll(controller)` attaches the controller; it also calls
+ *     `controller.attach()` to register the wheel/pointer listeners
+ *     and `controller.dispose()` on the previous controller (if any)
+ *     so a swap does not leak DOM listeners.
+ *   - `getScroll()` exposes the controller (read-only surface).
  *
  * Design notes:
  * - The renderer is created with `antialias: true` and a sensible device
@@ -70,6 +81,15 @@ import { WebGLRenderer, Scene, PerspectiveCamera, Color, Clock } from 'three';
  * private state.
  */
 export const PLANET_FACTORY_BRAND = Symbol('PlanetFactory');
+
+/**
+ * Brand stamped on objects returned by `createHorizontalScrollController`.
+ * `setScroll(controller)` rejects any object without this brand so a
+ * future supply-chain compromise cannot inject a controller whose
+ * `update()` calls `ipcRenderer` or otherwise escapes the renderer
+ * sandbox. Same defense-in-depth story as `PLANET_FACTORY_BRAND`.
+ */
+export const SCROLL_CONTROLLER_BRAND = Symbol('ScrollController');
 
 const DEFAULT_FOV = 60;
 const DEFAULT_NEAR = 0.1;
@@ -343,6 +363,15 @@ export const createScene = (opts) => {
   // the public surface of the factory is left untouched.
   let planetFactoryInstance = null;
   const planetUnregisterByInstance = new Map();
+
+  // Story 3-1: optional horizontal scroll controller. The controller
+  // owns the camera's X-axis motion and is wired through the same
+  // `addUpdater` registry. The controller itself attaches to the
+  // canvas for wheel/pointer events; the scene controller is
+  // responsible for calling `attach()` on the way in and `dispose()`
+  // on the way out so a swap does not leak DOM listeners.
+  let scrollInstance = null;
+  const scrollUnregisterByInstance = new Map();
 
   let rafHandle = null;
   let running = false;
@@ -626,6 +655,69 @@ export const createScene = (opts) => {
     return planetFactoryInstance.setInstalled(planetId, installed);
   };
 
+  /**
+   * Story 3-1: attach a horizontal scroll controller to the scene.
+   * The controller's per-frame `update(delta)` is wired through the
+   * same `addUpdater` registry used by the sun and planets. Calling
+   * `setScroll` a second time disposes the previous controller (so
+   * its DOM listeners are released) before wiring the new one.
+   *
+   * Defense in depth: `controller` must carry the
+   * `SCROLL_CONTROLLER_BRAND` symbol stamped on the object returned
+   * by `createHorizontalScrollController`. A faked controller (e.g.
+   * one whose `update` calls `ipcRenderer` or escapes the renderer
+   * sandbox via a future supply-chain compromise) cannot reproduce
+   * the symbol because `Symbol('ScrollController')` returns a unique
+   * value at every call site — only the scroll module that imports
+   * this constant can stamp it. A rejected controller is logged and
+   * ignored so the render loop never wires it.
+   */
+  const setScroll = (controller) => {
+    if (
+      controller &&
+      (typeof controller !== 'object' || controller[SCROLL_CONTROLLER_BRAND] !== true)
+    ) {
+      logger('[Three] setScroll: rejecting controller without SCROLL_CONTROLLER_BRAND', {
+        type: typeof controller,
+      });
+      return { accepted: false, reason: 'missing-brand', previous: scrollInstance };
+    }
+    if (scrollInstance) {
+      // Tear down the prior controller's updater handle first so the
+      // loop cannot call into a disposed controller. We do NOT call
+      // `dispose()` directly here — the unregister handle is what
+      // breaks the loop. `dispose()` additionally releases DOM
+      // listeners, so we run it after the unregister to keep the
+      // lifecycle in a defined order.
+      const prevUnregister = scrollUnregisterByInstance.get(scrollInstance);
+      if (typeof prevUnregister === 'function') {
+        prevUnregister();
+      }
+      scrollUnregisterByInstance.delete(scrollInstance);
+      if (typeof scrollInstance.detach === 'function') {
+        scrollInstance.detach();
+      }
+      if (typeof scrollInstance.dispose === 'function') {
+        scrollInstance.dispose();
+      }
+    }
+    scrollInstance = controller || null;
+    if (scrollInstance) {
+      if (typeof scrollInstance.attach === 'function') {
+        scrollInstance.attach();
+      }
+      const unregister = addUpdater((delta) => {
+        if (typeof scrollInstance.update === 'function') {
+          scrollInstance.update(delta);
+        }
+      });
+      scrollUnregisterByInstance.set(scrollInstance, unregister);
+    }
+    return scrollInstance;
+  };
+
+  const getScroll = () => scrollInstance;
+
   const dispose = () => {
     if (disposed) {
       return;
@@ -665,6 +757,24 @@ export const createScene = (opts) => {
         planetFactoryInstance.dispose();
       }
       planetFactoryInstance = null;
+    }
+    // Story 3-1: tear down the scroll controller in the same order.
+    // The updater is unregistered first so the loop cannot call into
+    // a disposed controller; `detach()` and `dispose()` then release
+    // the DOM listeners and zero the internal state.
+    if (scrollInstance) {
+      const unregister = scrollUnregisterByInstance.get(scrollInstance);
+      if (typeof unregister === 'function') {
+        unregister();
+      }
+      scrollUnregisterByInstance.delete(scrollInstance);
+      if (typeof scrollInstance.detach === 'function') {
+        scrollInstance.detach();
+      }
+      if (typeof scrollInstance.dispose === 'function') {
+        scrollInstance.dispose();
+      }
+      scrollInstance = null;
     }
     updaters.clear();
     disposeSceneObjects(scene);
@@ -708,6 +818,8 @@ export const createScene = (opts) => {
     setPlanets,
     getPlanets,
     setPlanetInstalled,
+    setScroll,
+    getScroll,
     dispose,
     setFpsSink,
     isRunning: () => running,
