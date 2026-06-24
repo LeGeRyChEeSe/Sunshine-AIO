@@ -294,17 +294,12 @@ export const createScene = (opts) => {
     // paint, so reading them synchronously here would silently use the
     // stale initialWidth/Height. Scheduling the read on the next RAF
     // (or via the provided rafFactory for tests) keeps the listener
-    // tracking the real window size.
-    const raf =
-      typeof opts.rafFactory === 'function'
-        ? opts.rafFactory
-        : (cb) => {
-            if (typeof globalThis.requestAnimationFrame === 'function') {
-              return globalThis.requestAnimationFrame(cb);
-            }
-            return null;
-          };
-    raf(() => {
+    // tracking the real window size. Reuse the already-configured
+    // `rafFactory` (declared above) rather than re-implementing the
+    // fallback inline — that keeps the resize path on the same RAF
+    // channel as the render loop, so test mocks via `opts.rafFactory`
+    // and the production fallback behave consistently.
+    rafFactory(() => {
       if (disposed) {
         return;
       }

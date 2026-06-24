@@ -112,6 +112,19 @@ try {
     // defensive): fall back to the old behavior.
     pinInitialView();
   }
+  // Safety net for the sync-hydration case: zustand's `persist` middleware
+  // only invokes `onFinishHydration` listeners on the hydrating -> hydrated
+  // transition. For a singleton store whose storage is already a sync API
+  // (the createJSONStorage(() => createMemoryStorage()) path used in tests
+  // and the defaultStorage() path here), hydration may complete synchronously
+  // before the registration above runs — in which case the listener never
+  // fires. Also, if hydration is in flight when this code runs, the early
+  // `setCurrentView` would be overwritten once hydration lands. An
+  // unconditional `pinInitialView()` call is harmless for the in-progress
+  // case (it reads the post-hydration value once hydration settles, and the
+  // default `currentView` is SOLAR_SYSTEM so it is a no-op for the happy
+  // path) and it guarantees the synchronous case still pins correctly.
+  pinInitialView();
 
   logger('[Renderer] Sunshine AIO renderer online (Story 2-1)');
 } catch (err) {
