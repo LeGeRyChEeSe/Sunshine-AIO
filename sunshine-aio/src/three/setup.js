@@ -292,6 +292,14 @@ export const createScene = (opts) => {
   // `getSun` can route through the scene controller without exposing
   // the mesh to callers. Set via `setSun` and disposed on `dispose()`.
   let sunInstance = null;
+  // Local registry of per-sun unregister handles. The sun is created
+  // by an external factory (`createSun`) which returns a clean,
+  // JSDoc-defined public surface — we must NOT mutate that surface
+  // with internal double-underscore properties. Storing the unregister
+  // function in a WeakMap keyed by the sun instance keeps the bridge
+  // encapsulated inside the scene controller and lets GC reclaim both
+  // entries together when the sun is collected.
+  const sunUnregisterByInstance = new WeakMap();
 
   let rafHandle = null;
   let running = false;
@@ -460,24 +468,29 @@ export const createScene = (opts) => {
     if (previous && typeof previous.dispose === 'function') {
       previous.dispose();
     }
+    // Drop the unregister for the prior sun (if any) so a leaked
+    // reference in the loop does not hold the old sun alive.
+    if (previous) {
+      const prevUnregister = sunUnregisterByInstance.get(previous);
+      if (typeof prevUnregister === 'function') {
+        prevUnregister();
+      }
+      sunUnregisterByInstance.delete(previous);
+    }
     sunInstance = sun || null;
     if (sunInstance) {
-      // Auto-remove the sun from the scene on dispose via a weak
-      // bridge so dispose() below can clean it up without leaking.
-      // The sun also exposes its own dispose() which the controller
-      // will call when setSun is called again or when the scene
-      // controller is disposed.
+      // Register the sun's per-frame driver with the loop. The returned
+      // unregister is stashed in a controller-local WeakMap keyed by
+      // the sun instance — NOT on the sun itself. Mutating the public
+      // surface of an external factory's return value would be a leaky
+      // contract; the WeakMap keeps the bridge private to this
+      // controller and lets GC reclaim both entries together.
       const unregister = addUpdater((delta, elapsed) => {
         if (typeof sunInstance.update === 'function') {
           sunInstance.update(delta, elapsed);
         }
       });
-      // Stash the unregister on the sun so setSun(null) / dispose can
-      // release the loop subscription even if the sun is replaced
-      // before its own dispose is called.
-      if (sunInstance && typeof sunInstance === 'object') {
-        sunInstance.__unregisterUpdater = unregister;
-      }
+      sunUnregisterByInstance.set(sunInstance, unregister);
     }
     return previous;
   };
@@ -505,12 +518,15 @@ export const createScene = (opts) => {
     detachResizeListener();
     fpsMonitor.dispose();
     // Dispose the sun first so it can detach its updater before the
-    // updater registry is cleared.
+    // updater registry is cleared. The unregister handle is read
+    // from the controller-local WeakMap (NOT from a property on the
+    // sun), so the public surface of the sun is left untouched.
     if (sunInstance) {
-      if (typeof sunInstance.__unregisterUpdater === 'function') {
-        sunInstance.__unregisterUpdater();
-        sunInstance.__unregisterUpdater = null;
+      const unregister = sunUnregisterByInstance.get(sunInstance);
+      if (typeof unregister === 'function') {
+        unregister();
       }
+      sunUnregisterByInstance.delete(sunInstance);
       if (typeof sunInstance.dispose === 'function') {
         sunInstance.dispose();
       }

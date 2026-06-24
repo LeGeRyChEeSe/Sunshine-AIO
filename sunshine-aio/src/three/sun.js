@@ -60,11 +60,33 @@ const DEFAULT_ACTIVE_COLOR = 0xffe066; // bright yellow for "installed"
 export const CORE_TOOLS = Object.freeze(['sunshine', 'vdd', 'playnite']);
 const TWO_PI = Math.PI * 2;
 
+/**
+ * Coerce an arbitrary value into a color input acceptable to Three.js.
+ *
+ * Accepted formats:
+ *   - number: a 24-bit hex value in [0, 0xFFFFFF]. Negative numbers
+ *     and out-of-range values fall back to the default — `>>> 0`
+ *     would otherwise turn -1 into 0xFFFFFFFF (opaque white).
+ *   - string: a CSS hex color matching /^#[0-9a-f]{3,8}$/i (3, 4, 6,
+ *     or 8 hex digits). Anything else falls back rather than throw
+ *     deep inside a material constructor.
+ *   - object with a `getHex` / `getHexString` method: assumed to be
+ *     a real `THREE.Color` instance, returned as-is.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ */
 const sanitizeColor = (value, fallback) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value >>> 0; // 32-bit unsigned
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 0xffffff) {
+    return value | 0;
   }
-  if (typeof value === 'string' && value.length > 0) {
+  if (typeof value === 'string') {
+    if (/^#[0-9a-f]{3,8}$/i.test(value)) {
+      return value;
+    }
+    return fallback;
+  }
+  if (value && typeof value === 'object' && typeof value.getHex === 'function') {
     return value;
   }
   return fallback;
@@ -124,7 +146,7 @@ export const createSun = (opts = {}) => {
     typeof opts.logger === 'function' ? opts.logger : (msg, meta) => console.info(msg, meta);
 
   const coreRadius = sanitizeRadius(opts.coreRadius, DEFAULT_CORE_RADIUS);
-  const haloRadius = sanitizeRadius(opts.haloRadius, coreRadius * DEFAULT_HALO_RATIO);
+  const haloRadius = sanitizeRadius(opts.haloRatio, coreRadius * DEFAULT_HALO_RATIO);
   const pulseAmplitude = Math.max(0, sanitizeScalar(opts.pulseAmplitude, DEFAULT_PULSE_AMPLITUDE));
   const pulseFrequencyHz = Math.max(
     0,
@@ -140,7 +162,12 @@ export const createSun = (opts = {}) => {
   const inactiveColor = sanitizeColor(opts.inactiveColor, DEFAULT_INACTIVE_COLOR);
   const activeColor = sanitizeColor(opts.activeColor, DEFAULT_ACTIVE_COLOR);
 
-  const { Object3D, Mesh, SphereGeometry, MeshStandardMaterial, MeshBasicMaterial, Color } = THREE;
+  // `Color` is not used directly inside createSun anymore — the
+  // hot path (`setInstalledTools`) mutates the existing material
+  // colors via `material.color.set(hex)`, which does not require a
+  // fresh `THREE.Color` instance. We keep the destructure list small
+  // to avoid an unused-var lint warning.
+  const { Object3D, Mesh, SphereGeometry, MeshStandardMaterial, MeshBasicMaterial } = THREE;
 
   // Root group — single Object3D so callers can `scene.add(sun.group)`
   // without learning about the internal structure.
@@ -178,15 +205,6 @@ export const createSun = (opts = {}) => {
   halo.name = 'SunHalo';
   group.add(halo);
 
-  // Pre-allocate one Color per active/inactive state and reuse them
-  // for every satellite flip. The previous implementation rebuilt a
-  // `new Color(...)` on every setInstalledTools call for every tool,
-  // which turned the function into a steady object factory even when
-  // the underlying state did not change (e.g. Zustand re-emits with
-  // identical payloads). Caching keeps this hot path allocation-free.
-  const activeColorInstance = new Color(activeColor);
-  const inactiveColorInstance = new Color(inactiveColor);
-
   // Satellite indicators — one per core tool. Each starts in the
   // "inactive" (dim) state until setInstalledTools flips it.
   const satellites = CORE_TOOLS.map((name, index) => {
@@ -214,6 +232,14 @@ export const createSun = (opts = {}) => {
       phaseOffset: phase,
     };
   });
+
+  // Precomputed O(1) lookup for the installed-tools hot path. Building
+  // the map once at construction time replaces the per-call
+  // `satellites.find(...)` walk in `setInstalledTools` (O(N^2) overall)
+  // with a single map read. Kept as a plain Map rather than a WeakMap
+  // because the keys are the well-known CORE_TOOLS strings, not object
+  // references.
+  const satellitesByName = new Map(satellites.map((s) => [s.name, s]));
 
   // Track installed state for each tool. Default to false.
   const installedState = CORE_TOOLS.reduce((acc, name) => {
@@ -248,8 +274,12 @@ export const createSun = (opts = {}) => {
       Math.sin(angle) * orbitRadius
     );
     // Brighten the emissive a touch so the active indicator visually
-    // pops without requiring a separate point light.
-    satellite.material.emissiveIntensity = satellite.installed ? 1.4 : 0.6;
+    // pops without requiring a separate point light. Installed tools
+    // get a stronger boost (2.0) than the inactive default (0.6) so
+    // the "core tools indicator" is clearly distinguishable at a
+    // glance — a literal 1.4 vs 0.6 swap was too subtle to read as
+    // "installed" against the warm sun glow.
+    satellite.material.emissiveIntensity = satellite.installed ? 2.0 : 0.6;
   };
 
   const update = (deltaSeconds = 0, elapsedSeconds) => {
@@ -283,7 +313,12 @@ export const createSun = (opts = {}) => {
     // in sync visually.
     if (pulseAmplitude > 0 && pulseFrequencyHz > 0) {
       const wave = Math.sin(TWO_PI * pulseFrequencyHz * elapsed);
-      haloMaterial.opacity = 0.28 + pulseAmplitude * 0.8 * wave;
+      // Defensive clamp: with the current default amplitude (0.06) the
+      // raw expression stays well inside [0, 1], but a future caller
+      // could pass a larger amplitude and the value would leave the
+      // legal alpha range. Three.js does not validate this for us.
+      const opacity = 0.28 + pulseAmplitude * 0.8 * wave;
+      haloMaterial.opacity = Math.max(0, Math.min(1, opacity));
     }
     for (const satellite of satellites) {
       applySatelliteTransform(satellite);
@@ -295,6 +330,12 @@ export const createSun = (opts = {}) => {
    * subset of `sunshine`, `vdd`, `playnite`. Unknown keys are ignored.
    * Updates the satellite colors and emissive intensity to reflect the
    * new state.
+   *
+   * Hot-path contract: this method runs on every Zustand store
+   * subscription, so it must NOT allocate. We mutate the existing
+   * `material.color` and `material.emissive` in place via
+   * `Color.set(...)` and look up the target satellite through the
+   * pre-built `satellitesByName` map.
    */
   const setInstalledTools = (tools) => {
     if (disposed) {
@@ -309,23 +350,26 @@ export const createSun = (opts = {}) => {
       if (installedState[name] === next) {
         // No state transition — skip the material rebuild entirely
         // so Zustand store re-emissions with identical payloads don't
-        // allocate Color objects on every change.
+        // mutate Color objects on every change.
         continue;
       }
       installedState[name] = next;
       changed = true;
-      const satellite = satellites.find((s) => s.name === name);
+      const satellite = satellitesByName.get(name);
       if (!satellite) {
         continue;
       }
       satellite.installed = next;
-      // Reuse the cached Color instances instead of allocating a new
-      // pair on every state flip. Three.js mutates Color in place
-      // when assigned the same hex, so we just point the material at
-      // the pre-built instances.
-      satellite.material.color = next ? activeColorInstance : inactiveColorInstance;
-      satellite.material.emissive = next ? activeColorInstance : inactiveColorInstance;
-      satellite.material.emissiveIntensity = next ? 1.4 : 0.6;
+      // Mutate in place — Color.set() overwrites the existing color
+      // value rather than allocating a new one. We feed the raw
+      // sanitized hex (already a finite integer) directly so the call
+      // is independent of the pre-built Color instances' internal
+      // representation, which keeps the stub's Color.set contract
+      // minimal and the production behavior identical.
+      const hex = next ? activeColor : inactiveColor;
+      satellite.material.color.set(hex);
+      satellite.material.emissive.set(hex);
+      satellite.material.emissiveIntensity = next ? 2.0 : 0.6;
     }
     if (changed) {
       logger('[Sun] Installed tools updated', { ...installedState });

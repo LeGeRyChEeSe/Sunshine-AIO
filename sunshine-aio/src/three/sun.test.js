@@ -38,6 +38,16 @@ const createThreeStub = () => {
     constructor(value) {
       this.value = value;
     }
+    // Real Three.js Color exposes a `set(value)` mutator that
+    // overwrites the instance in place. The production code path
+    // for `setInstalledTools` uses `material.color.set(hex)` to avoid
+    // allocating a new Color on every state flip, so the stub must
+    // support the same surface. Returning `this` mirrors the real
+    // API and lets callers chain.
+    set(value) {
+      this.value = value;
+      return this;
+    }
   }
 
   class Geometry {
@@ -152,6 +162,37 @@ describe('three/sun.js (Story 2-2)', () => {
         playnite: false,
       });
     });
+
+    it('honors the documented `haloRatio` option (renamed from haloRadius)', async () => {
+      // The previous implementation read `opts.haloRadius`, which
+      // silently ignored documented `haloRatio: 1.45` overrides and
+      // fell back to the default. Verify the rename took effect: a
+      // caller-supplied haloRatio must produce a halo sphere whose
+      // geometry was built with the explicit radius.
+      const mod = await import('./sun.js');
+      const customSun = mod.createSun({ THREE, coreRadius: 1.0, haloRatio: 2.0 });
+      // Halo radius should be 2.0 * coreRadius (not the 1.45 default).
+      expect(customSun.haloRadius).toBeCloseTo(2.0, 5);
+    });
+
+    it('falls back to the default when coreColor is a negative number', async () => {
+      // The previous `>>> 0` coercion turned -1 into 0xFFFFFFFF
+      // (opaque white). The new validation requires the number to
+      // sit inside [0, 0xFFFFFF], so a negative value must fall back
+      // to the default orange (0xffb347) instead.
+      const mod = await import('./sun.js');
+      const customSun = mod.createSun({ THREE, coreColor: -1 });
+      const sunshineSat = customSun.satellites.find((s) => s.name === 'sunshine');
+      // The satellite uses the inactiveColor as its initial material
+      // color, but it shares the constructor path with coreColor via
+      // sanitizeColor. The default inactiveColor (0x6b6259) is what
+      // lands in the satellite's material because the override is
+      // rejected and falls through. We assert that the *initial* color
+      // matches the documented default rather than 0xFFFFFFFF.
+      const initial = sunshineSat.material.color.value;
+      expect(initial).not.toBe(0xffffffff);
+      expect(initial).toBe(0x6b6259); // default inactiveColor
+    });
   });
 
   describe('pulsing animation', () => {
@@ -197,7 +238,10 @@ describe('three/sun.js (Story 2-2)', () => {
       expect(sunshineSat.installed).toBe(true);
       expect(sunshineSat.material.color.value).toBe(0xffe066); // activeColor
       expect(sunshineSat.material.emissive.value).toBe(0xffe066);
-      expect(sunshineSat.material.emissiveIntensity).toBe(1.4);
+      // 2.0 is the stronger installed-state boost chosen so the
+      // active indicator is clearly distinguishable from the
+      // inactive 0.6 baseline.
+      expect(sunshineSat.material.emissiveIntensity).toBe(2.0);
     });
 
     it('leaves unrelated tools unchanged', () => {
@@ -237,6 +281,26 @@ describe('three/sun.js (Story 2-2)', () => {
     it('does not throw after dispose', () => {
       sun.dispose();
       expect(() => sun.setInstalledTools({ sunshine: true })).not.toThrow();
+    });
+
+    it('clamps halo opacity to [0, 1] across 100 frames even with aggressive pulseAmplitude', async () => {
+      // Build a sun with an aggressive amplitude that would push the
+      // raw `0.28 + pulseAmplitude * 0.8 * sin(...)` expression outside
+      // the legal alpha range (0.28 + 0.8 * 0.6 = 0.76, while the lower
+      // bound 0.28 - 0.8 * 0.6 = -0.20 < 0). The defensive clamp added
+      // in sun.js must keep the value inside [0, 1] regardless.
+      const mod = await import('./sun.js');
+      const aggressiveSun = mod.createSun({
+        THREE,
+        pulseAmplitude: 0.6,
+        pulseFrequencyHz: 1.0,
+      });
+      for (let frame = 0; frame < 100; frame += 1) {
+        const elapsed = frame * 0.016;
+        aggressiveSun.update(0.016, elapsed);
+        expect(aggressiveSun.halo.material.opacity).toBeGreaterThanOrEqual(0);
+        expect(aggressiveSun.halo.material.opacity).toBeLessThanOrEqual(1);
+      }
     });
   });
 

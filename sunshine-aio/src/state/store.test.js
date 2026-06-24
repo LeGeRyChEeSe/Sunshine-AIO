@@ -342,5 +342,74 @@ describe('state/store.js (Story 2-1 + 2-2)', () => {
       expect(typeof STORE_VERSION).toBe('number');
       expect(STORE_VERSION).toBeGreaterThanOrEqual(1);
     });
+
+    it('drops persisted keys outside the whitelisted slice list', () => {
+      // The new mergeSlices implementation only accepts a known set of
+      // top-level keys (worldState / installState / navigationState /
+      // coreTools). Any other key present in the persisted blob must
+      // be silently dropped on rehydrate so a forged or accidentally
+      // mutated storage entry cannot smuggle arbitrary keys into the
+      // runtime state.
+      const memory = createMemoryStorage();
+      const storage = createJSONStorage(() => memory);
+      // Seed a forged payload with a non-whitelisted key. We bypass
+      // the createAppStore path because the store's partialize would
+      // strip this key before writing it back. We write the raw JSON
+      // directly into the underlying memory storage (the layer
+      // underneath `createJSONStorage`) so the bytes match what
+      // zustand/persist would have written itself — `setItem` on the
+      // wrapped storage would JSON.stringify a second time.
+      memory.setItem(
+        STORE_NAME,
+        JSON.stringify({
+          version: 1,
+          state: {
+            coreTools: { sunshine: true, vdd: true, playnite: true },
+            // The malicious / non-whitelisted key:
+            __forged__: { dangerous: true },
+            // A non-whitelisted selector-style key (would have leaked
+            // through the old root-level spread):
+            toString: 'malicious',
+          },
+        })
+      );
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const store = createAppStore({ storage, name: STORE_NAME });
+      const state = store.getState();
+      // The whitelisted slice survives the round trip:
+      expect(state.coreTools).toEqual({
+        sunshine: true,
+        vdd: true,
+        playnite: true,
+      });
+      // The forged / undocumented keys are dropped — they do NOT
+      // appear on the runtime state:
+      expect(state.__forged__).toBeUndefined();
+      expect(typeof state.toString).toBe('function'); // default Object.prototype, NOT the string
+      warnSpy.mockRestore();
+    });
+
+    it('supports the subscribeWithSelector middleware (2-arg subscribe form)', () => {
+      // The renderer subscribes to `coreTools` via the selector form
+      // `subscribe(selector, listener)` to avoid spurious invocations
+      // on unrelated state changes. The middleware must support this
+      // form. We assert by driving a different slice and confirming
+      // the selector-scoped listener does NOT fire.
+      const storage = jsonMemoryStorage();
+      const store = createAppStore({ storage, name: STORE_NAME });
+      const coreToolsListener = vi.fn();
+      store.subscribe((state) => state.coreTools, coreToolsListener);
+      // Mutate an unrelated slice (FPS):
+      store.getState().setFps(42);
+      // Listener must not have fired — FPS is not coreTools.
+      expect(coreToolsListener).not.toHaveBeenCalled();
+      // Now mutate coreTools — listener must fire exactly once.
+      store.getState().setCoreToolInstalled('sunshine', true);
+      expect(coreToolsListener).toHaveBeenCalledTimes(1);
+      expect(coreToolsListener).toHaveBeenCalledWith(
+        { sunshine: true, vdd: false, playnite: false },
+        { sunshine: false, vdd: false, playnite: false }
+      );
+    });
   });
 });

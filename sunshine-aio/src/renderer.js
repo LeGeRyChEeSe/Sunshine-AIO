@@ -97,12 +97,17 @@ try {
   // Push the initial core-tools state into the sun. Subscribing via
   // `subscribe` keeps the indicator colors in lockstep with the store
   // after every action — no manual sync required when an installer
-  // finishes in story 3-x.
-  const pushCoreTools = () => {
-    sceneController.setInstalledTools(store.getState().coreTools);
+  // finishes in story 3-x. We pass a selector so the subscription
+  // fires only when `coreTools` actually changes; without it, every
+  // store mutation (FPS ticks, navigation transitions, etc.) would
+  // call into `setInstalledTools` and re-validate the slice for no
+  // reason. The store is built with `subscribeWithSelector` so the
+  // 2-arg form of `subscribe(selector, listener)` is supported.
+  const pushCoreTools = (coreTools) => {
+    sceneController.setInstalledTools(coreTools);
   };
-  pushCoreTools();
-  store.subscribe(pushCoreTools);
+  pushCoreTools(store.getState().coreTools);
+  store.subscribe((state) => state.coreTools, pushCoreTools);
 
   // Wire the FPS monitor's onFpsUpdate sink so the store and the
   // on-screen overlay both read from the same source of truth — the

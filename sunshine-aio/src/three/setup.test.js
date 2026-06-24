@@ -85,6 +85,13 @@ vi.mock('three', () => {
     constructor(value) {
       this.value = value;
     }
+    // Mirrors sun.test.js's stub — keeps the contract surface uniform
+    // across the suite so a future test that wires a real sun through
+    // the mocked scene can still call color.set(...) without throwing.
+    set(value) {
+      this.value = value;
+      return this;
+    }
   }
   class Clock {
     constructor() {
@@ -609,6 +616,13 @@ describe('three/setup.js (Story 2-1)', () => {
       class Color {
         constructor(value) {
           this.value = value;
+        }
+        // Mirrors the production Color surface that the sun now
+        // relies on (sun.js's setInstalledTools calls
+        // material.color.set(hex) in place to avoid allocations).
+        set(value) {
+          this.value = value;
+          return this;
         }
       }
       class Geometry {

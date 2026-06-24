@@ -41,7 +41,7 @@
  */
 
 import { createStore } from 'zustand/vanilla';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, subscribeWithSelector } from 'zustand/middleware';
 
 export const STORE_NAME = 'sunshine-aio-app-state';
 export const STORE_VERSION = 1;
@@ -225,18 +225,47 @@ const runMigration = (persistedState, version) => {
 };
 
 /**
+ * Whitelist of recognized top-level slices. `mergeSlices` builds the
+ * rehydrated state exclusively from this list — any extra key present
+ * in the persisted blob is dropped and surfaced via a warn-level log
+ * line. This is a defensive measure against forged or accidentally
+ * mutated storage entries: the spread-based merge used to accept any
+ * `Object.keys(persistedState)` and could surface arbitrary
+ * undocumented keys to selectors.
+ */
+const KNOWN_SLICES = Object.freeze(['worldState', 'installState', 'navigationState', 'coreTools']);
+
+/**
  * Shallow-merge each top-level slice individually rather than
  * replacing whole slices. This preserves runtime-only fields like
  * `worldState.fps` and `worldState.sceneInitialized` across rehydrate
  * even when those keys are intentionally excluded from the persisted
  * blob via `partialize`.
+ *
+ * The merged root is built explicitly from `KNOWN_SLICES`; any
+ * additional key present in the persisted blob is logged and
+ * dropped. The previous implementation used a root-level
+ * `{ ...currentState, ...persistedState }` spread, which would have
+ * silently injected arbitrary keys (e.g. a forged `toString`
+ * override or a custom `__extra__` field) into the runtime state.
  */
 const mergeSlices = (persistedState, currentState) => {
   if (!persistedState) {
     return currentState;
   }
-  const merged = { ...currentState, ...persistedState };
+  const merged = {};
+  for (const key of KNOWN_SLICES) {
+    merged[key] = currentState[key];
+  }
   for (const key of Object.keys(persistedState)) {
+    if (!KNOWN_SLICES.includes(key)) {
+      console.warn(
+        `[Store] mergeSlices: ignoring unknown persisted key "${key}". ` +
+          'Whitelisted slices are: ' +
+          KNOWN_SLICES.join(', ')
+      );
+      continue;
+    }
     const persistedSlice = persistedState[key];
     const currentSlice = currentState[key];
     if (
@@ -248,6 +277,8 @@ const mergeSlices = (persistedState, currentState) => {
       !Array.isArray(currentSlice)
     ) {
       merged[key] = { ...currentSlice, ...persistedSlice };
+    } else {
+      merged[key] = persistedSlice;
     }
   }
   return merged;
@@ -289,233 +320,245 @@ export const createAppStore = (opts = {}) => {
   const skipHydration = Boolean(opts.skipHydration);
 
   return createStore(
-    persist(
-      // `set` is required by Zustand's state creator signature; `get` is kept
-      // for symmetry with future actions that will need cross-slice reads.
-      // eslint-disable-next-line no-unused-vars
-      (set, get) => ({
-        ...initialState(),
+    // `subscribeWithSelector` lets callers pass a selector to
+    // `subscribe(selector, listener)`. Without this middleware, the
+    // vanilla store fires on every state change — including FPS
+    // updates, navigation transitions, and any other slice mutation
+    // — which is wasteful for selectors that only care about a single
+    // slice (e.g. the sun's `coreTools` watcher in renderer.js).
+    subscribeWithSelector(
+      persist(
+        // `set` is required by Zustand's state creator signature; `get` is kept
+        // for symmetry with future actions that will need cross-slice reads.
+        // eslint-disable-next-line no-unused-vars
+        (set, get) => ({
+          ...initialState(),
 
-        // ---------- worldState actions ----------
-        setPlanetStatus: (planetId, status) =>
-          set((state) => {
-            const next = state.worldState.planets.map((planet) =>
-              planet.id === planetId ? { ...planet, status } : planet
-            );
-            return {
-              worldState: { ...state.worldState, planets: next },
-            };
-          }),
+          // ---------- worldState actions ----------
+          setPlanetStatus: (planetId, status) =>
+            set((state) => {
+              const next = state.worldState.planets.map((planet) =>
+                planet.id === planetId ? { ...planet, status } : planet
+              );
+              return {
+                worldState: { ...state.worldState, planets: next },
+              };
+            }),
 
-        upsertPlanet: (planet) =>
-          set((state) => {
-            const existingIndex = state.worldState.planets.findIndex((p) => p.id === planet.id);
-            const planets =
-              existingIndex === -1
-                ? [...state.worldState.planets, planet]
-                : state.worldState.planets.map((p, i) =>
-                    i === existingIndex ? { ...p, ...planet } : p
-                  );
-            return { worldState: { ...state.worldState, planets } };
-          }),
+          upsertPlanet: (planet) =>
+            set((state) => {
+              const existingIndex = state.worldState.planets.findIndex((p) => p.id === planet.id);
+              const planets =
+                existingIndex === -1
+                  ? [...state.worldState.planets, planet]
+                  : state.worldState.planets.map((p, i) =>
+                      i === existingIndex ? { ...p, ...planet } : p
+                    );
+              return { worldState: { ...state.worldState, planets } };
+            }),
 
-        setFps: (fps) =>
-          set((state) => ({
-            worldState: {
-              ...state.worldState,
-              fps: Number.isFinite(fps) ? fps : 0,
-            },
-          })),
+          setFps: (fps) =>
+            set((state) => ({
+              worldState: {
+                ...state.worldState,
+                fps: Number.isFinite(fps) ? fps : 0,
+              },
+            })),
 
-        markSceneInitialized: (initialized = true) =>
-          set((state) => ({
-            worldState: { ...state.worldState, sceneInitialized: !!initialized },
-          })),
+          markSceneInitialized: (initialized = true) =>
+            set((state) => ({
+              worldState: { ...state.worldState, sceneInitialized: !!initialized },
+            })),
 
-        // ---------- installState actions ----------
-        addInstalledApp: (app) =>
-          set((state) => {
-            const exists = state.installState.installedApps.some((entry) => entry.id === app.id);
-            if (exists) {
+          // ---------- installState actions ----------
+          addInstalledApp: (app) =>
+            set((state) => {
+              const exists = state.installState.installedApps.some((entry) => entry.id === app.id);
+              if (exists) {
+                return {
+                  installState: {
+                    ...state.installState,
+                    installedApps: state.installState.installedApps.map((entry) =>
+                      entry.id === app.id ? { ...entry, ...app } : entry
+                    ),
+                    lastUpdatedAt: Date.now(),
+                  },
+                };
+              }
               return {
                 installState: {
                   ...state.installState,
-                  installedApps: state.installState.installedApps.map((entry) =>
-                    entry.id === app.id ? { ...entry, ...app } : entry
-                  ),
+                  installedApps: [
+                    ...state.installState.installedApps,
+                    { ...app, installedAt: app.installedAt || Date.now() },
+                  ],
                   lastUpdatedAt: Date.now(),
                 },
               };
-            }
-            return {
+            }),
+
+          removeInstalledApp: (appId) =>
+            set((state) => ({
               installState: {
                 ...state.installState,
-                installedApps: [
-                  ...state.installState.installedApps,
-                  { ...app, installedAt: app.installedAt || Date.now() },
-                ],
+                installedApps: state.installState.installedApps.filter(
+                  (entry) => entry.id !== appId
+                ),
                 lastUpdatedAt: Date.now(),
               },
-            };
-          }),
+            })),
 
-        removeInstalledApp: (appId) =>
-          set((state) => ({
-            installState: {
-              ...state.installState,
-              installedApps: state.installState.installedApps.filter((entry) => entry.id !== appId),
-              lastUpdatedAt: Date.now(),
-            },
-          })),
+          startInstallProgress: (appId) =>
+            set((state) => {
+              if (state.installState.inProgressApps.includes(appId)) {
+                return state;
+              }
+              return {
+                installState: {
+                  ...state.installState,
+                  inProgressApps: [...state.installState.inProgressApps, appId],
+                  failedApps: state.installState.failedApps.filter((id) => id !== appId),
+                },
+              };
+            }),
 
-        startInstallProgress: (appId) =>
-          set((state) => {
-            if (state.installState.inProgressApps.includes(appId)) {
-              return state;
-            }
-            return {
-              installState: {
-                ...state.installState,
-                inProgressApps: [...state.installState.inProgressApps, appId],
-                failedApps: state.installState.failedApps.filter((id) => id !== appId),
-              },
-            };
-          }),
+          finishInstallProgress: (appId, outcome) =>
+            set((state) => {
+              const inProgressApps = state.installState.inProgressApps.filter((id) => id !== appId);
+              const failedApps =
+                outcome === 'failed' && !state.installState.failedApps.includes(appId)
+                  ? [...state.installState.failedApps, appId]
+                  : state.installState.failedApps.filter((id) => id !== appId);
+              return {
+                installState: {
+                  ...state.installState,
+                  inProgressApps,
+                  failedApps,
+                  lastUpdatedAt: Date.now(),
+                },
+              };
+            }),
 
-        finishInstallProgress: (appId, outcome) =>
-          set((state) => {
-            const inProgressApps = state.installState.inProgressApps.filter((id) => id !== appId);
-            const failedApps =
-              outcome === 'failed' && !state.installState.failedApps.includes(appId)
-                ? [...state.installState.failedApps, appId]
-                : state.installState.failedApps.filter((id) => id !== appId);
-            return {
-              installState: {
-                ...state.installState,
-                inProgressApps,
-                failedApps,
-                lastUpdatedAt: Date.now(),
-              },
-            };
-          }),
+          // ---------- navigationState actions ----------
+          setCurrentView: (view) =>
+            set((state) => {
+              if (!Object.values(APP_VIEW).includes(view)) {
+                return state;
+              }
+              // Skip pushing the same view we're already on to avoid
+              // cluttering the history stack with no-op transitions.
+              if (state.navigationState.currentView === view) {
+                return state;
+              }
+              return {
+                navigationState: {
+                  ...state.navigationState,
+                  currentView: view,
+                  history: [...state.navigationState.history, view].slice(-20),
+                },
+              };
+            }),
 
-        // ---------- navigationState actions ----------
-        setCurrentView: (view) =>
-          set((state) => {
-            if (!Object.values(APP_VIEW).includes(view)) {
-              return state;
-            }
-            // Skip pushing the same view we're already on to avoid
-            // cluttering the history stack with no-op transitions.
-            if (state.navigationState.currentView === view) {
-              return state;
-            }
-            return {
+          setFocusedPlanet: (planetId) =>
+            set((state) => ({
               navigationState: {
                 ...state.navigationState,
-                currentView: view,
-                history: [...state.navigationState.history, view].slice(-20),
+                focusedPlanetId: planetId,
               },
-            };
-          }),
+            })),
 
-        setFocusedPlanet: (planetId) =>
-          set((state) => ({
-            navigationState: {
-              ...state.navigationState,
-              focusedPlanetId: planetId,
-            },
-          })),
-
-        setFocusedApp: (appId) =>
-          set((state) => ({
-            navigationState: {
-              ...state.navigationState,
-              focusedAppId: appId,
-            },
-          })),
-
-        goBack: () =>
-          set((state) => {
-            const history = [...state.navigationState.history];
-            // The history stack includes the current view as its last
-            // entry. Discard it, then promote the entry below to the
-            // current view. If we are already at the bottom, leave the
-            // state untouched so the UI doesn't fall off the start of
-            // the timeline.
-            history.pop();
-            const previous = history[history.length - 1];
-            if (!previous || previous === state.navigationState.currentView) {
-              return state;
-            }
-            return {
+          setFocusedApp: (appId) =>
+            set((state) => ({
               navigationState: {
                 ...state.navigationState,
-                currentView: previous,
-                history,
+                focusedAppId: appId,
               },
-            };
-          }),
+            })),
 
-        resetNavigation: () =>
-          set(() => ({
-            navigationState: initialNavigationState(),
-          })),
+          goBack: () =>
+            set((state) => {
+              const history = [...state.navigationState.history];
+              // The history stack includes the current view as its last
+              // entry. Discard it, then promote the entry below to the
+              // current view. If we are already at the bottom, leave the
+              // state untouched so the UI doesn't fall off the start of
+              // the timeline.
+              history.pop();
+              const previous = history[history.length - 1];
+              if (!previous || previous === state.navigationState.currentView) {
+                return state;
+              }
+              return {
+                navigationState: {
+                  ...state.navigationState,
+                  currentView: previous,
+                  history,
+                },
+              };
+            }),
 
-        // ---------- coreTools actions ----------
-        /**
-         * Replace the entire core-tools map. Unknown keys are dropped,
-         * missing keys default to `false`. The new state is shallow-
-         * cloned to keep the persist middleware happy.
-         */
-        setCoreTools: (tools) =>
-          set(() => ({
-            coreTools: normalizeCoreTools(tools),
-          })),
+          resetNavigation: () =>
+            set(() => ({
+              navigationState: initialNavigationState(),
+            })),
 
-        /**
-         * Set a single core tool's installed state. Ignores unknown ids
-         * (returns the unchanged state) so a typo in a caller doesn't
-         * silently expand the slice.
-         */
-        setCoreToolInstalled: (toolId, installed) => {
-          if (!CORE_TOOL_IDS.includes(toolId)) {
-            return;
-          }
-          set((state) => ({
-            coreTools: { ...state.coreTools, [toolId]: Boolean(installed) },
-          }));
-        },
+          // ---------- coreTools actions ----------
+          /**
+           * Replace the entire core-tools map. Unknown keys are dropped,
+           * missing keys default to `false`. The new state is shallow-
+           * cloned to keep the persist middleware happy.
+           */
+          setCoreTools: (tools) =>
+            set(() => ({
+              coreTools: normalizeCoreTools(tools),
+            })),
 
-        /**
-         * Convenience: derive the core-tools map from the installed
-         * apps list. Recognizes the canonical core tool ids and
-         * marks a tool as installed when an app with the same id is
-         * present in `installedApps`. Apps without a recognized id
-         * (e.g. "playnite-extension") do not affect the sun.
-         */
-        syncCoreToolsFromInstalls: () =>
-          set((state) => {
-            const next = { ...state.coreTools };
-            const installedIds = new Set(state.installState.installedApps.map((entry) => entry.id));
-            for (const id of CORE_TOOL_IDS) {
-              next[id] = installedIds.has(id);
+          /**
+           * Set a single core tool's installed state. Ignores unknown ids
+           * (returns the unchanged state) so a typo in a caller doesn't
+           * silently expand the slice.
+           */
+          setCoreToolInstalled: (toolId, installed) => {
+            if (!CORE_TOOL_IDS.includes(toolId)) {
+              return;
             }
-            return { coreTools: next };
-          }),
+            set((state) => ({
+              coreTools: { ...state.coreTools, [toolId]: Boolean(installed) },
+            }));
+          },
 
-        // ---------- bulk helpers ----------
-        reset: () => set(initialState()),
-      }),
-      {
-        name,
-        version: STORE_VERSION,
-        storage,
-        partialize,
-        merge: mergeSlices,
-        migrate: runMigration,
-        skipHydration,
-      }
+          /**
+           * Convenience: derive the core-tools map from the installed
+           * apps list. Recognizes the canonical core tool ids and
+           * marks a tool as installed when an app with the same id is
+           * present in `installedApps`. Apps without a recognized id
+           * (e.g. "playnite-extension") do not affect the sun.
+           */
+          syncCoreToolsFromInstalls: () =>
+            set((state) => {
+              const next = { ...state.coreTools };
+              const installedIds = new Set(
+                state.installState.installedApps.map((entry) => entry.id)
+              );
+              for (const id of CORE_TOOL_IDS) {
+                next[id] = installedIds.has(id);
+              }
+              return { coreTools: next };
+            }),
+
+          // ---------- bulk helpers ----------
+          reset: () => set(initialState()),
+        }),
+        {
+          name,
+          version: STORE_VERSION,
+          storage,
+          partialize,
+          merge: mergeSlices,
+          migrate: runMigration,
+          skipHydration,
+        }
+      )
     )
   );
 };
