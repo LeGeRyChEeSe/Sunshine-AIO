@@ -167,6 +167,19 @@ const computeSlot = (index, total, override = {}, seed = 0) => {
  *   - getInstalledMap(): { [planetId]: boolean }
  *   - dispose(): release GPU resources
  *
+ * Clock contract for `update(deltaSeconds, elapsedSeconds)`:
+ *   - Passing `elapsedSeconds` (a finite number >= 0) as the second
+ *     argument synchronises every planet AND the orbit lines to a
+ *     single shared clock. This is the recommended mode: all
+ *     `elapsed`-derived positions stay phase-locked across planets
+ *     regardless of update ordering or floating-point drift.
+ *   - Omitting `elapsedSeconds` (i.e. leaving it `undefined`) makes
+ *     each planet fall back to its own internal accumulator that
+ *     sums `deltaSeconds` per tick. In that mode planets drift
+ *     relative to one another (small per-planet FP noise) and orbit
+ *     lines do not advance — callers that need a single source of
+ *     truth should always supply a shared `elapsedSeconds`.
+ *
  * @param {PlanetFactoryOptions} opts
  */
 export const createPlanetsForCategories = (opts = {}) => {
