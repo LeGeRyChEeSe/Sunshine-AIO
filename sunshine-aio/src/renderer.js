@@ -76,30 +76,15 @@ try {
   const store = useAppStore;
   store.getState().markSceneInitialized(true);
 
-  // Reflect FPS into the Zustand store and the on-screen overlay. The
-  // overlay is updated from a small polling loop so the user-visible
-  // value stays fresh even though the FPS monitor only logs every
-  // ~2s. The store update is throttled to ~2 Hz to avoid hammering
-  // React subscribers with transient frame data.
-  let lastPushedAt = 0;
-  let lastFrameTime = performance.now();
-  const fpsProbe = () => {
-    const now = performance.now();
-    const delta = (now - lastFrameTime) / 1000;
-    lastFrameTime = now;
-    if (delta > 0) {
-      const instantFps = 1 / delta;
-      if (now - lastPushedAt >= 500) {
-        lastPushedAt = now;
-        store.getState().setFps(instantFps);
-        fpsOverlay.textContent = `FPS: ${instantFps.toFixed(1)}`;
-      }
-    }
-    if (sceneController && sceneController.isRunning()) {
-      requestAnimationFrame(fpsProbe);
-    }
-  };
-  requestAnimationFrame(fpsProbe);
+  // Wire the FPS monitor's onFpsUpdate sink so the store and the
+  // on-screen overlay both read from the same source of truth — the
+  // rolling-average FPS computed inside the scene controller. The
+  // monitor flushes every ~2s, which is a comfortable cadence for the
+  // React subscribers and keeps the overlay value stable.
+  sceneController.setFpsSink?.((fps) => {
+    store.getState().setFps(fps);
+    fpsOverlay.textContent = `FPS: ${fps.toFixed(1)}`;
+  });
 
   // Pin the initial view to the solar system so a brand-new install
   // lands on the right screen instead of waiting for the first user

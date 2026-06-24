@@ -6,6 +6,16 @@
  *   - installState     : which apps are installed, in-progress, or failed.
  *   - navigationState  : current view, focus, history stack for back nav.
  *
+ * `worldState.fps` semantics: this value is the **rolling-average**
+ * FPS emitted by the scene controller's FPS monitor (a 60-frame
+ * rolling window, refreshed every ~2s). It is NOT an instantaneous
+ * 1/frame-delta reading. Consumers (story 2-2 / 2-3 overlays,
+ * diagnostics, etc.) should treat the value as a smoothed
+ * representation of renderer throughput rather than a per-frame
+ * measurement. The value is also clamped to [0, 240] so a long tab
+ * pause does not produce a 1e10 reading when the monitor finally
+ * flushes.
+ *
  * Persistence:
  *   The store is wrapped with the `persist` middleware. State survives a
  *   renderer reload (F5 during development) and an app restart (window
@@ -138,8 +148,43 @@ const defaultStorage = () => {
  * a hybrid object that satisfies none of the new invariants.
  */
 const migrations = {
-  // No migrations yet — first version.
+  // No migrations yet — first version. When STORE_VERSION is bumped,
+  // add a migrator here keyed by the *previous* version (e.g. 1, 2)
+  // so persisted blobs from earlier releases can be upgraded in place.
+  // The runtime assertion below (see `assertMigrationsConsistent`)
+  // will throw at module load if the table is left empty while
+  // STORE_VERSION > 1, surfacing the omission in CI before it reaches
+  // production.
 };
+
+/**
+ * Surface "bumped STORE_VERSION but no migrators" at module load.
+ * Without this, the API is unstable: a developer can update the
+ * version constant and forget to add a migration entry, and the only
+ * symptom is silent data loss in the field. The assertion turns that
+ * omission into a hard error in the same tick that the mismatch is
+ * introduced.
+ */
+const assertMigrationsConsistent = () => {
+  if (STORE_VERSION > 1 && Object.keys(migrations).length === 0) {
+    throw new Error(
+      `[Store] STORE_VERSION is ${STORE_VERSION} but the migrations table is empty. ` +
+        'Add a migrator entry for the previous version before bumping STORE_VERSION.'
+    );
+  }
+  // Forward direction: every version below STORE_VERSION must have a
+  // migrator, otherwise older persisted blobs will be discarded and
+  // the user loses their state silently.
+  for (let v = 1; v < STORE_VERSION; v += 1) {
+    if (typeof migrations[v] !== 'function') {
+      throw new Error(
+        `[Store] Missing migrator for version ${v} -> ${STORE_VERSION}. ` +
+          'Add a migrator entry to the migrations table.'
+      );
+    }
+  }
+};
+assertMigrationsConsistent();
 
 const runMigration = (persistedState, version) => {
   if (!persistedState) {

@@ -260,8 +260,17 @@ describe('three/setup.js (Story 2-1)', () => {
     });
 
     it('resize handler updates camera aspect and renderer size', () => {
+      // Capture the deferred raf callback so the test can drive the
+      // size read deterministically (handleResize now defers to the
+      // next animation frame to give the browser a chance to lay out
+      // the canvas before reading clientWidth/clientHeight).
+      const pendingCallbacks = [];
+      const raf = vi.fn((cb) => {
+        pendingCallbacks.push(cb);
+        return pendingCallbacks.length;
+      });
       const canvas = makeCanvas({ width: 800, height: 600 });
-      const opts = baseOpts({ canvas });
+      const opts = baseOpts({ canvas, rafFactory: raf });
       const controller = createScene(opts);
 
       // Mutate the canvas client size to simulate a window resize.
@@ -269,9 +278,44 @@ describe('three/setup.js (Story 2-1)', () => {
       canvas.clientHeight = 720;
       controller.handleResize();
 
+      // The resize was scheduled, not applied yet.
+      expect(pendingCallbacks).toHaveLength(1);
+      pendingCallbacks[0]();
+
       expect(rendererStub.setSize).toHaveBeenCalledWith(1280, 720, false);
       expect(controller.camera.aspect).toBeCloseTo(1280 / 720, 5);
       expect(cameraStub.updateProjectionMatrix).toHaveBeenCalled();
+      controller.dispose();
+    });
+
+    it('resize handler skips when the canvas reports zero dimensions', () => {
+      const pendingCallbacks = [];
+      const raf = vi.fn((cb) => {
+        pendingCallbacks.push(cb);
+        return pendingCallbacks.length;
+      });
+      const canvas = makeCanvas({ width: 800, height: 600 });
+      const opts = baseOpts({ canvas, rafFactory: raf });
+      const controller = createScene(opts);
+
+      // First, drive a successful resize so the handler no longer
+      // treats the initialWidth/Height as a fallback.
+      canvas.clientWidth = 1024;
+      canvas.clientHeight = 768;
+      controller.handleResize();
+      pendingCallbacks.pop()();
+
+      const setSizeCallsAfterFirstResize = rendererStub.setSize.mock.calls.length;
+
+      // Now simulate a layout collapse (e.g. display:none during a
+      // theme switch) where the canvas reports 0/0. The handler must
+      // skip the resize rather than clobber the framebuffer.
+      canvas.clientWidth = 0;
+      canvas.clientHeight = 0;
+      controller.handleResize();
+      pendingCallbacks.pop()();
+
+      expect(rendererStub.setSize.mock.calls.length).toBe(setSizeCallsAfterFirstResize);
       controller.dispose();
     });
 
@@ -448,6 +492,53 @@ describe('three/setup.js (Story 2-1)', () => {
       // The point of this test is that stop() cancels the interval so
       // it doesn't keep the test runner alive past exit.
       expect(true).toBe(true);
+    });
+
+    it('forwards the rolling FPS to onFpsUpdate on every flush', () => {
+      const onLog = vi.fn();
+      const onFpsUpdate = vi.fn();
+      const monitor = createFpsMonitor({
+        onLog,
+        onFpsUpdate,
+        sampleWindow: 2,
+      });
+      monitor.tick(1 / 60);
+      monitor.tick(1 / 60);
+      monitor.flush(true);
+      expect(onFpsUpdate).toHaveBeenCalledTimes(1);
+      expect(onFpsUpdate).toHaveBeenCalledWith(expect.any(Number));
+      const fps = onFpsUpdate.mock.calls[0][0];
+      expect(fps).toBeGreaterThan(55);
+      expect(fps).toBeLessThan(65);
+      monitor.dispose();
+    });
+
+    it('clamps onFpsUpdate to a sane upper bound (240)', () => {
+      const onFpsUpdate = vi.fn();
+      const monitor = createFpsMonitor({ onFpsUpdate, sampleWindow: 1 });
+      // A tiny delta would produce an astronomical FPS without the clamp.
+      monitor.tick(1 / 10000);
+      monitor.flush(true);
+      expect(onFpsUpdate).toHaveBeenCalledTimes(1);
+      expect(onFpsUpdate.mock.calls[0][0]).toBeLessThanOrEqual(240);
+      monitor.dispose();
+    });
+
+    it('setFpsSink replaces the sink at runtime', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const monitor = createFpsMonitor({ onFpsUpdate: first, sampleWindow: 1 });
+      monitor.tick(1 / 60);
+      monitor.flush(true);
+      expect(first).toHaveBeenCalledTimes(1);
+
+      monitor.setFpsSink(second);
+      monitor.tick(1 / 60);
+      monitor.flush(true);
+      expect(second).toHaveBeenCalledTimes(1);
+      // The original sink is no longer called.
+      expect(first).toHaveBeenCalledTimes(1);
+      monitor.dispose();
     });
   });
 

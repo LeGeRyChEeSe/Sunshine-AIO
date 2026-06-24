@@ -343,5 +343,36 @@ describe('state/store.js (Story 2-1)', () => {
       mem.removeItem('key');
       expect(mem.getItem('key')).toBeNull();
     });
+
+    it('resets to initial state when persisted version has no migrator', async () => {
+      // Pre-seed storage with a v0 blob (a version older than the
+      // current STORE_VERSION with no registered migrator). The
+      // persistence contract is: when no migrator matches, the
+      // persisted blob is discarded and the store hydrates from
+      // initialState() so the user gets a clean slate rather than a
+      // hybrid object that satisfies no invariant.
+      const mem = createMemoryStorage();
+      mem.setItem(
+        STORE_NAME,
+        JSON.stringify({
+          version: 0,
+          state: {
+            worldState: { planets: [{ id: 'stale' }] },
+            installState: { installedApps: [{ id: 'stale-app' }] },
+            navigationState: { currentView: 'bogus', history: [] },
+          },
+        })
+      );
+      const storage = createJSONStorage(() => mem);
+      const store = createAppStore({ storage });
+
+      // The persist middleware hydrates synchronously here (no async
+      // rehydration queued), so the merged state should reflect the
+      // initial defaults — no leaked stale slice.
+      const state = store.getState();
+      expect(state.worldState.planets).toEqual([]);
+      expect(state.installState.installedApps).toEqual([]);
+      expect(state.navigationState.currentView).toBe(APP_VIEW.SOLAR_SYSTEM);
+    });
   });
 });

@@ -58,6 +58,7 @@ export const createFpsMonitor = (opts = {}) => {
   const sampleWindow = Math.max(1, opts.sampleWindow || DEFAULT_FPS_SAMPLE_WINDOW);
   const logIntervalMs = Math.max(100, opts.logIntervalMs || DEFAULT_FPS_LOG_INTERVAL_MS);
   const onLog = typeof opts.onLog === 'function' ? opts.onLog : () => {};
+  let onFpsUpdate = typeof opts.onFpsUpdate === 'function' ? opts.onFpsUpdate : null;
 
   const samples = [];
   let lastEmitAt = 0;
@@ -88,6 +89,13 @@ export const createFpsMonitor = (opts = {}) => {
         fps: Number(fps.toFixed(2)),
         samples: samples.length,
       });
+      if (typeof onFpsUpdate === 'function') {
+        // Clamp to a sane upper bound so a long tab pause doesn't
+        // produce a 1e10 instantaneous reading when the monitor
+        // finally flushes after the user returns.
+        const clamped = Math.min(Math.max(fps, 0), 240);
+        onFpsUpdate(clamped);
+      }
     }
   };
 
@@ -120,7 +128,16 @@ export const createFpsMonitor = (opts = {}) => {
     samples.length = 0;
   };
 
-  return { tick, start, stop, dispose, flush };
+  /**
+   * Replace the onFpsUpdate sink. Useful when a higher-level
+   * controller (e.g. the renderer) wants to attach a store writer
+   * after the monitor is constructed.
+   */
+  const setFpsSink = (sink) => {
+    onFpsUpdate = typeof sink === 'function' ? sink : null;
+  };
+
+  return { tick, start, stop, dispose, flush, setFpsSink };
 };
 
 /**
@@ -171,6 +188,10 @@ export const disposeSceneObjects = (scene) => {
  * @property {number} [fpsLogIntervalMs=2000] FPS log cadence.
  * @property {(cb: (t: number) => void) => number} [rafFactory]   RAF override (tests).
  * @property {(handle: number) => void} [cancelRaf]            Cancel override.
+ * @property {(fps: number) => void} [onFpsUpdate]   Sink for the
+ *   rolling-window FPS value. Fires every time the monitor flushes, so
+ *   consumers (e.g. the Zustand store) can read the same averaged value
+ *   that gets logged. This is the single source of truth for FPS.
  */
 
 /**
@@ -208,6 +229,11 @@ export const createScene = (opts) => {
   renderer.setPixelRatio(Math.min(dprSource, opts.dprCap ?? DEFAULT_DPR_CAP));
   renderer.setSize(initialWidth, initialHeight, false);
   renderer.setClearColor(backgroundColor, 1);
+  // The constructor-time setSize above is the only legitimate use of
+  // initialWidth/Height — the resize handler must not fall back to
+  // them once the canvas is in play. Track the initial apply so the
+  // handler knows when to skip the fallback.
+  let initialSizeApplied = true;
 
   const scene = new Scene();
   scene.background = new Color(backgroundColor);
@@ -222,6 +248,7 @@ export const createScene = (opts) => {
     sampleWindow: opts.fpsSampleWindow,
     logIntervalMs: opts.fpsLogIntervalMs,
     onLog: (msg, meta) => logger(msg, meta),
+    onFpsUpdate: typeof opts.onFpsUpdate === 'function' ? opts.onFpsUpdate : null,
   });
 
   // Default RAF factories fall back to globalThis so the module works in
@@ -244,38 +271,75 @@ export const createScene = (opts) => {
   };
   const rafFactory = opts.rafFactory || fallbackRaf;
   const cancelRaf = opts.cancelRaf || fallbackCancelRaf;
-  // setTimeoutFactory is reserved for future test overrides; the FPS
-  // monitor owns its own internal interval lifecycle for now.
-  void opts.setTimeoutFactory;
 
   let rafHandle = null;
   let running = false;
   let disposed = false;
   let resizeListener = null;
 
-  const handleResize = () => {
-    // Mirror the setSize() guards: a canvas that is not yet laid out
-    // (display:none, hidden during a theme switch, or simply zero-sized
-    // at first paint) reports clientWidth/clientHeight === 0. Calling
-    // renderer.setSize(0, 0) corrupts the WebGL framebuffer and throws
-    // GL_INVALID_FRAMEBUFFER_OPERATION on the next render. Skip the
-    // resize and keep the previous valid dimensions; we will get
-    // another resize event as soon as the canvas is laid out.
-    const rawW = canvas.clientWidth;
-    const rawH = canvas.clientHeight;
-    const fallbackW = rawW > 0 ? rawW : initialWidth;
-    const fallbackH = rawH > 0 ? rawH : initialHeight;
-    if (!Number.isFinite(fallbackW) || !Number.isFinite(fallbackH) || fallbackW <= 0 || fallbackH <= 0) {
-      logger('[Three] Resize skipped: invalid canvas dimensions', {
-        clientWidth: rawW,
-        clientHeight: rawH,
-      });
-      return;
+  const applySize = (width, height) => {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return false;
     }
-    renderer.setSize(fallbackW, fallbackH, false);
-    camera.aspect = fallbackW / fallbackH;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    logger('[Three] Resize', { width: fallbackW, height: fallbackH });
+    return true;
+  };
+
+  const handleResize = () => {
+    // Defer the actual size read to the next animation frame so the
+    // browser has a chance to lay out the canvas. A freshly-created
+    // canvas reports clientWidth/clientHeight === 0 before the first
+    // paint, so reading them synchronously here would silently use the
+    // stale initialWidth/Height. Scheduling the read on the next RAF
+    // (or via the provided rafFactory for tests) keeps the listener
+    // tracking the real window size.
+    const raf =
+      typeof opts.rafFactory === 'function'
+        ? opts.rafFactory
+        : (cb) => {
+            if (typeof globalThis.requestAnimationFrame === 'function') {
+              return globalThis.requestAnimationFrame(cb);
+            }
+            return null;
+          };
+    raf(() => {
+      if (disposed) {
+        return;
+      }
+      const rawW = canvas.clientWidth;
+      const rawH = canvas.clientHeight;
+      // Only use initialWidth/Height as a last-resort fallback for the
+      // *very first* call (when no explicit width/height was provided
+      // and the canvas hasn't been laid out yet). After the initial
+      // size has been applied at construction, if the canvas reports
+      // zero dimensions, we skip the resize rather than silently
+      // clobbering the WebGL framebuffer. The browser will emit
+      // another resize event as soon as the canvas is laid out.
+      const useFallback = initialSizeApplied && rawW <= 0 && rawH <= 0;
+      const w = rawW > 0 ? rawW : useFallback ? initialWidth : null;
+      const h = rawH > 0 ? rawH : useFallback ? initialHeight : null;
+      if (w === null || h === null) {
+        logger('[Three] Resize skipped: invalid canvas dimensions', {
+          clientWidth: rawW,
+          clientHeight: rawH,
+        });
+        return;
+      }
+      if (!applySize(w, h)) {
+        logger('[Three] Resize skipped: applySize rejected dimensions', {
+          width: w,
+          height: h,
+        });
+        return;
+      }
+      // The first valid resize (whether the canvas was already laid
+      // out or we used the fallback) means subsequent calls should
+      // never fall back to the stale initialWidth/Height again.
+      initialSizeApplied = false;
+      logger('[Three] Resize', { width: w, height: h });
+    });
   };
 
   const attachResizeListener = () => {
@@ -340,16 +404,10 @@ export const createScene = (opts) => {
   /**
    * Imperative resize (e.g. when the window is dragged across monitors
    * with different DPI). Mirrors the resize handler but takes explicit
-   * dimensions so callers can force a sync resize.
+   * dimensions so callers can force a sync resize. Returns true on
+   * success, false when the dimensions were rejected.
    */
-  const setSize = (width, height) => {
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-      return;
-    }
-    renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-  };
+  const setSize = (width, height) => applySize(width, height);
 
   const dispose = () => {
     if (disposed) {
@@ -376,6 +434,15 @@ export const createScene = (opts) => {
     logger('[Three] Scene disposed');
   };
 
+  /**
+   * Replace the FPS sink at runtime. Used by the renderer to push
+   * rolling-average FPS values into the Zustand store without
+   * requiring the sink to be configured at construction time.
+   */
+  const setFpsSink = (sink) => {
+    fpsMonitor.setFpsSink(typeof sink === 'function' ? sink : null);
+  };
+
   return {
     renderer,
     scene,
@@ -385,6 +452,7 @@ export const createScene = (opts) => {
     setSize,
     handleResize,
     dispose,
+    setFpsSink,
     isRunning: () => running,
     isDisposed: () => disposed,
   };
