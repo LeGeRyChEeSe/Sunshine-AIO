@@ -56,7 +56,7 @@ development_status:
   2-1-configuration-de-three-js-et-zustand: review # PR #46 open: 0 high, 0 medium restants (61/61 tests pass)
   2-2-creation-du-composant-sun-soleil: review # PR #47 open: 1 high, 9 medium restants, lint clean, 89/89 tests pass
   2-3-creation-du-composant-planet-planetes: review # PR #48 open: 0 high, 7 medium restants, lint clean, 139/139 tests pass
-  2-4-implementation-de-la-persistance-d-etat: backlog
+  2-4-implementation-de-la-persistance-d-etat: in-progress
   epic-2-retrospective: optional
 
   # Epic 3: Navigation Planétaire
