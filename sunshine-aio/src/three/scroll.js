@@ -163,6 +163,11 @@ export const createHorizontalScrollController = (opts = {}) => {
   let enabled = opts.enabled !== false;
   let attached = false;
   let disposed = false;
+  // Mutable binding for the planet count so `setPlanetCount` can
+  // replace it at runtime (e.g. categories reloaded from disk).
+  // Declared with the other state bindings to keep the declaration
+  // order co-located with the state it mutates.
+  let planetCountValue = planetCount;
 
   // Drag state. The pointer can be a stub in tests; the controller
   // checks for the DOM methods before calling them.
@@ -501,6 +506,14 @@ export const createHorizontalScrollController = (opts = {}) => {
     enabled = Boolean(next);
     if (!enabled) {
       velocity = 0;
+      // If a drag was in progress when disabled, end it now so
+      // `dragging` and `dragPointerId` are reset. Otherwise a future
+      // pointermove (even unrelated to the original drag) would pass
+      // the `dragging` check and apply impulses as if the drag were
+      // still in progress once the controller is re-enabled.
+      if (dragging) {
+        endDrag(null);
+      }
     }
   };
 
@@ -549,6 +562,17 @@ export const createHorizontalScrollController = (opts = {}) => {
    * the spring across the seam) is folded onto the new length so the
    * next frame picks up the same visual slot without re-crossing the
    * seam unexpectedly.
+   *
+   * Trade-off: rewrapping `target` and `visualOffset` to the same
+   * value snaps any in-flight inertia-based scroll to the new slot
+   * when the planet count changes mid-flight (e.g. categories
+   * reloaded from disk). The controller preserves the velocity
+   * direction so the next `update()` tick integrates naturally from
+   * the rewrapped slot; we only fold the integer accumulator, not
+   * the continuous motion. The visible result is a one-tick step
+   * followed by resumed inertia, rather than a hard freeze. Callers
+   * that need to keep the velocity untouched can read `getVelocity()`
+   * before the swap and reapply it after.
    */
   const setPlanetCount = (count) => {
     const safe = Math.max(0, Math.floor(sanitizeScalar(count, 0)));
@@ -562,16 +586,18 @@ export const createHorizontalScrollController = (opts = {}) => {
       target = 0;
       offset = 0;
       visualOffset = 0;
+      velocity = 0;
     } else if (boundaryMode === 'wrap') {
+      // Only rewrap the integer slot and the unbounded accumulator
+      // so the camera doesn't teleport; preserve `velocity` so the
+      // next integrateVelocity tick continues the in-flight motion
+      // from the rewrapped position rather than slamming to a stop.
       let wrapped = target % newLength;
       if (wrapped < 0) {
         wrapped += newLength;
       }
       target = wrapped;
       offset = wrapped;
-      // Fold the unbounded accumulator to match. Keeping it in sync
-      // here means a wheel flick right after the swap doesn't see a
-      // surprise jump as the spring catches up from a stale offset.
       let wrappedVisual = visualOffset % newLength;
       if (wrappedVisual < 0) {
         wrappedVisual += newLength;
@@ -591,18 +617,12 @@ export const createHorizontalScrollController = (opts = {}) => {
         offset = 0;
       }
       visualOffset = 0;
+      velocity = 0;
     }
-    velocity = 0;
     if (camera && camera.position) {
       camera.position.x = offset;
     }
   };
-
-  // We store the planet count in a closure-local binding so
-  // `setPlanetCount` can mutate it without a `let` redeclaration on
-  // the top of the factory. The public `getPlanetCount` reads from
-  // this binding.
-  let planetCountValue = planetCount;
 
   const dispose = () => {
     if (disposed) {
