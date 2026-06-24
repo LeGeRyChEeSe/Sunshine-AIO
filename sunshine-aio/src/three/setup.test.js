@@ -909,6 +909,31 @@ describe('three/setup.js (Story 2-1)', () => {
       fresh.dispose();
     });
 
+    it('setPlanets returns a tagged rejection result for non-branded factories and retains the prior one', () => {
+      const controller = createScene(baseOpts());
+      const valid = buildFactory();
+      controller.setPlanets(valid);
+      expect(controller.getPlanets()).toBe(valid);
+
+      // A plain object (no brand symbol) must be rejected, the prior
+      // factory must remain attached, and the rejection result must
+      // expose `.accepted === false` and `.reason === 'missing-brand'`.
+      const fake = { group: {}, update: () => {}, setInstalled: () => true, dispose: () => {} };
+      const result = controller.setPlanets(fake);
+      expect(result).toEqual(expect.objectContaining({ accepted: false, reason: 'missing-brand' }));
+      expect(result.previous).toBe(valid);
+      // The previous factory is retained untouched.
+      expect(controller.getPlanets()).toBe(valid);
+
+      // Functions, primitives, symbols, and bigints are also rejected.
+      for (const bogus of [() => {}, 'string', 42, Symbol('x'), 1n]) {
+        const r = controller.setPlanets(bogus);
+        expect(r.accepted).toBe(false);
+        expect(r.reason).toBe('missing-brand');
+        expect(r.previous).toBe(valid);
+      }
+    });
+
     it('setPlanetInstalled routes to the factory and returns false for unknown ids', () => {
       const controller = createScene(baseOpts());
       const factory = buildFactory();

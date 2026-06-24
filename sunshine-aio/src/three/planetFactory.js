@@ -66,7 +66,9 @@ const sanitizeScalar = (value, fallback) => {
  */
 const computeSlot = (index, total, override = {}) => {
   const orbitRadius = sanitizeScalar(
-    override.orbitRadius > 0 ? override.orbitRadius : NaN,
+    typeof override.orbitRadius === 'number' && override.orbitRadius > 0
+      ? override.orbitRadius
+      : NaN,
     MIN_ORBIT_RADIUS + index * ORBIT_SPACING
   );
   const phase = sanitizeScalar(override.phase, (index / Math.max(1, total)) * PHASE_SPREAD);
@@ -140,23 +142,25 @@ export const createPlanetsForCategories = (opts = {}) => {
   const planetById = new Map();
   const skipped = [];
 
-  // Detect innerRadius clamps BEFORE we start placing planets. If the
-  // caller's `innerRadius` is greater than the smallest computed slot
-  // (the very first planet's default orbit radius), `Math.max` would
-  // collapse multiple planets onto the same orbit. Log a warning so the
-  // mismatch is surfaced; also surface a warning when an explicit
-  // per-category `orbitRadius` is below innerRadius so the clamp is
-  // visible at the call site rather than silently swallowing layout.
+  // Detect innerRadius clamps BEFORE we start placing planets. The
+  // default config (innerRadius=2.8, MIN_ORBIT_RADIUS=3.0) leaves room
+  // for every category at (3.0, 4.5, 6.0, ...). Only warn when there
+  // is genuinely NO room — i.e. `innerRadius` exceeds the LAST computed
+  // slot, in which case `Math.max(innerRadius, slot)` will collapse
+  // planets onto the same orbit. A single orbit at the clamp (the first
+  // slot equals innerRadius) is fine and not a regression.
   const totalCategories = opts.categories.length;
   const firstSlotRadius = MIN_ORBIT_RADIUS;
-  if (innerRadius > firstSlotRadius) {
+  const lastDefaultSlotRadius = firstSlotRadius + Math.max(0, totalCategories - 1) * ORBIT_SPACING;
+  if (innerRadius > lastDefaultSlotRadius) {
     logger(
-      '[PlanetFactory] innerRadius is larger than the smallest default orbit; ' +
+      '[PlanetFactory] innerRadius is larger than the last default orbit; ' +
         'planets will be clamped up to innerRadius and may share orbits. ' +
         'Pass a smaller innerRadius (default 2.8) or larger ORBIT_SPACING.',
       {
         innerRadius,
         firstDefaultRadius: firstSlotRadius,
+        lastDefaultRadius: lastDefaultSlotRadius,
         categoryCount: totalCategories,
       }
     );
@@ -228,27 +232,22 @@ export const createPlanetsForCategories = (opts = {}) => {
   }
 
   let disposed = false;
-  let sharedElapsed = 0;
-  let hasUpdated = false;
 
   const update = (deltaSeconds = 0, elapsedSeconds) => {
     if (disposed) {
       return;
     }
-    const dt = Number.isFinite(deltaSeconds) && deltaSeconds > 0 ? deltaSeconds : 0;
-    if (Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0) {
-      sharedElapsed = elapsedSeconds;
-    } else if (dt > 0) {
-      sharedElapsed += dt;
-    } else if (!hasUpdated) {
-      sharedElapsed += 0.0001;
-    }
-    hasUpdated = true;
+    // Each planet owns its own `elapsed` clock (per-planet
+    // `update(deltaSeconds, elapsedSeconds)`); the factory just fans
+    // the inputs out. We pass `elapsedSeconds` through so a caller
+    // that supplies a shared clock still drives every planet in
+    // sync; when `elapsedSeconds` is undefined each planet falls
+    // back to accumulating its own `deltaSeconds`.
     for (const planet of planets) {
-      planet.instance.update(deltaSeconds, sharedElapsed);
+      planet.instance.update(deltaSeconds, elapsedSeconds);
     }
     if (orbits) {
-      orbits.update(sharedElapsed);
+      orbits.update(elapsedSeconds);
     }
   };
 
@@ -328,10 +327,17 @@ export const createPlanetsForCategories = (opts = {}) => {
       configurable: false,
       writable: false,
     });
-  } catch {
+  } catch (err) {
     // Some environments (very old engines, frozen objects) refuse
     // defineProperty after the literal is created. The brand is a
-    // defense-in-depth check; falling back silently is acceptable.
+    // defense-in-depth check; the brand is a defense-in-depth check
+    // and a failure here almost certainly indicates a Proxy / accessor
+    // collision. Forward to the logger so the regression is diagnosable
+    // — `setPlanets` will reject this factory as a result, but the
+    // developer should know WHY.
+    logger('[PlanetFactory] brand stamp failed', {
+      error: err && err.message ? err.message : String(err),
+    });
   }
   return factory;
 };

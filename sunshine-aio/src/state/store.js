@@ -774,13 +774,13 @@ export const createAppStore = (opts = {}) => {
               );
               // Surface unmatched `categoryId` values so stale or
               // mistyped entries don't silently mark a non-existent
-              // category as installed. The match against `installedIds`
-              // uses real app ids, which are not category ids and
-              // therefore cannot be matched against `knownCategoryIds`
-              // — only `categoryId` references are validated here.
+              // category as installed. `installedIds` is a set of app
+              // ids, which lives in a disjoint id space from category
+              // ids — intersecting the two would never be true, so the
+              // check is solely against `knownCategoryIds`.
               const unmatchedCategoryIds = new Set();
               for (const id of installedCategoryIds) {
-                if (!knownCategoryIds.has(id) && !installedIds.has(id)) {
+                if (!knownCategoryIds.has(id)) {
                   unmatchedCategoryIds.add(id);
                 }
               }

@@ -230,4 +230,51 @@ describe('three/planetFactory.js — computeSlot', () => {
     expect(a.phase).toBeGreaterThanOrEqual(0);
     expect(a.phase).toBeLessThan(Math.PI * 2);
   });
+
+  it('returns the deterministic default for all four fields when overrides is empty', async () => {
+    const mod = await import('./planetFactory.js');
+    // Sanity baseline: a slot for index=2 of 5 has a known orbitRadius
+    // (3.0 + 2 * 1.5 = 6.0) and a known phase (2/5 * 2pi).
+    const slot = mod.computeSlot(2, 5, {});
+    expect(slot.orbitRadius).toBeCloseTo(6.0, 6);
+    expect(slot.phase).toBeCloseTo((2 / 5) * Math.PI * 2, 6);
+    expect(typeof slot.spinSpeed).toBe('number');
+    expect(Number.isFinite(slot.spinSpeed)).toBe(true);
+    expect(typeof slot.revolutionSpeed).toBe('number');
+    expect(Number.isFinite(slot.revolutionSpeed)).toBe(true);
+  });
+
+  it('falls back to defaults for non-finite or string overrides', async () => {
+    const mod = await import('./planetFactory.js');
+    // NaN, Infinity, and strings must all collapse to the deterministic
+    // default. The factory exports `computeSlot` precisely so callers
+    // can ask "what would index 3 of 7 look like with these overrides?"
+    // — garbage in should not produce NaN out.
+    const slot = mod.computeSlot(3, 7, {
+      phase: NaN,
+      spinSpeed: 'fast',
+      revolutionSpeed: Infinity,
+    });
+    expect(Number.isFinite(slot.orbitRadius)).toBe(true);
+    expect(slot.orbitRadius).toBeGreaterThan(0);
+    expect(Number.isFinite(slot.phase)).toBe(true);
+    expect(Number.isFinite(slot.spinSpeed)).toBe(true);
+    expect(Number.isFinite(slot.revolutionSpeed)).toBe(true);
+  });
+
+  it('falls back to the default orbitRadius when override is non-positive or non-numeric', async () => {
+    const mod = await import('./planetFactory.js');
+    // Regression: before the round-2 fix, `override.orbitRadius > 0`
+    // threw when `override.orbitRadius` was undefined. The fix adds
+    // a typeof guard, but we want a test that exercises the undefined,
+    // negative, and non-numeric override paths.
+    const baseline = mod.computeSlot(1, 4);
+    const fromUndef = mod.computeSlot(1, 4, { orbitRadius: undefined });
+    const fromNeg = mod.computeSlot(1, 4, { orbitRadius: -1 });
+    const fromZero = mod.computeSlot(1, 4, { orbitRadius: 0 });
+    const fromString = mod.computeSlot(1, 4, { orbitRadius: '5' });
+    for (const slot of [fromUndef, fromNeg, fromZero, fromString]) {
+      expect(slot.orbitRadius).toBe(baseline.orbitRadius);
+    }
+  });
 });

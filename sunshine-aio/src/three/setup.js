@@ -573,7 +573,10 @@ export const createScene = (opts) => {
       logger('[Three] setPlanets: rejecting factory without PLANET_FACTORY_BRAND', {
         type: typeof factory,
       });
-      return null;
+      // Tagged rejection result. The previous factory (if any) is
+      // retained untouched so a caller can re-attempt with a valid
+      // factory. Callers that only need a boolean can use `.accepted`.
+      return { accepted: false, reason: 'missing-brand', previous: planetFactoryInstance };
     }
     const previous = planetFactoryInstance;
     if (previous) {
