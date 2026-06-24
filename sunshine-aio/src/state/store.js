@@ -53,7 +53,9 @@
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage, subscribeWithSelector } from 'zustand/middleware';
 
-import { pickFreshSeed } from './seed.js';
+import { pickFreshSeed, coerceSeed } from './seed.js';
+import { DEFAULT_WORLD_CONFIG } from './defaults.js';
+import { installPersistenceBridge } from './persistenceBridge.js';
 
 export const STORE_NAME = 'sunshine-aio-app-state';
 export const STORE_VERSION = 2;
@@ -82,17 +84,12 @@ const initialWorldState = () => ({
 });
 
 /**
- * Default world configuration. Story 2-4 introduces the persistence
- * layer; the worldConfig slice is the input that drives the planet
- * factory's seeded layout. The defaults match `DEFAULT_WORLD_CONFIG`
- * in `persistence.js` — they are duplicated here so the store can
- * build its initial state without an import cycle.
+ * Re-exported so existing test code and consumers that imported
+ * `DEFAULT_WORLD_CONFIG` from `store.js` keep working. The actual
+ * definition lives in `./defaults.js` so `store.js` and
+ * `persistence.js` share a single source of truth.
  */
-export const DEFAULT_WORLD_CONFIG = Object.freeze({
-  seed: 42,
-  lastRegeneratedAt: null,
-  regenerated: false,
-});
+export { DEFAULT_WORLD_CONFIG };
 
 const initialWorldConfig = () => ({
   seed: DEFAULT_WORLD_CONFIG.seed,
@@ -236,12 +233,13 @@ const defaultStorage = () => {
 };
 
 /**
- * Throttle helper. Coalesces a burst of `fn()` calls so the wrapped
- * function runs at most once per `waitMs` milliseconds. The trailing
- * call carries the most recent arguments, so the last update always
- * lands on disk. We use a leading-edge throttle (no leading call,
- * trailing only) so a write that races with a state mutation does
- * not overwrite a fresher value with a stale snapshot.
+ * Throttle helper. The persistence bridge owns its own copy of this
+ * helper inside `persistenceBridge.js`; it is duplicated here as a
+ * stub so this module keeps a stable module surface for any caller
+ * that imported `throttleTrailing` directly. New code should import
+ * from `persistenceBridge.js` instead.
+ *
+ * @deprecated Import from `./persistenceBridge.js` instead.
  */
 const throttleTrailing = (fn, waitMs) => {
   if (typeof fn !== 'function') {
@@ -469,10 +467,12 @@ const sanitizeWorldConfig = (next) => {
   if (!next || typeof next !== 'object') {
     return fallback;
   }
-  const seed =
-    typeof next.seed === 'number' && Number.isFinite(next.seed) && next.seed >= 0
-      ? Math.floor(next.seed)
-      : fallback.seed;
+  // `coerceSeed` rejects anything outside the 32-bit safe-integer
+  // range. Out-of-range inputs collapse to `null` so we fall back
+  // to the default — a `Number.MAX_SAFE_INTEGER + 1` (or a NaN)
+  // can never reach the planet factory's bit math.
+  const coerced = coerceSeed(next.seed);
+  const seed = coerced !== null ? coerced : fallback.seed;
   const lastRegeneratedAt =
     next.lastRegeneratedAt === null
       ? null
@@ -638,19 +638,21 @@ export const createAppStore = (opts = {}) => {
           regenerateWorld: (opts = {}) => {
             const ts =
               typeof opts.now === 'number' && Number.isFinite(opts.now) ? opts.now : Date.now();
-            const current = sanitizeWorldConfig(null);
-            // Re-read the *current* slice so the new seed differs
-            // from whatever is currently stored.
-            // `set` does not have access to `get` here without using
-            // the closure; we read through `set((state) => ...)`
-            // which gives us a consistent view of the previous slice.
-            let chosenSeed = current.seed;
+            // `coerceSeed` validates the forced seed against the
+            // 32-bit safe-integer range. Anything outside the range
+            // (MAX_SAFE_INTEGER + 1, NaN, strings) collapses to
+            // `null` so we fall through to the counter-driven
+            // `pickFreshSeed`. The previous slice's seed is read
+            // inside the `set` callback so the new seed is guaranteed
+            // to differ from whatever is currently stored.
+            const forcedSeed = coerceSeed(opts.seed);
+            let chosenSeed = null;
             set((state) => {
               const sanitized = sanitizeWorldConfig({
                 ...state.worldConfig,
                 seed:
-                  typeof opts.seed === 'number' && Number.isFinite(opts.seed) && opts.seed >= 0
-                    ? Math.floor(opts.seed)
+                  forcedSeed !== null
+                    ? forcedSeed
                     : pickFreshSeed(state.worldConfig.seed, ts),
                 lastRegeneratedAt: ts,
                 regenerated: true,
@@ -668,12 +670,20 @@ export const createAppStore = (opts = {}) => {
           /**
            * Replace the seed (without bumping the regenerate
            * timestamp). Useful for tests and for a future "import a
-           * layout from a seed" feature.
+           * layout from a seed" feature. Out-of-range seeds are
+           * silently coerced to the default so a caller cannot
+           * poison the slice with a NaN or an integer that would
+           * lose precision in the planet factory's bit math.
            */
-          setSeed: (seed) =>
+          setSeed: (seed) => {
+            const coerced = coerceSeed(seed);
             set((state) => ({
-              worldConfig: sanitizeWorldConfig({ ...state.worldConfig, seed }),
-            })),
+              worldConfig: sanitizeWorldConfig({
+                ...state.worldConfig,
+                seed: coerced !== null ? coerced : DEFAULT_WORLD_CONFIG.seed,
+              }),
+            }));
+          },
 
           // ---------- installState actions ----------
           addInstalledApp: (app) =>
@@ -1010,215 +1020,16 @@ export const createAppStore = (opts = {}) => {
   );
 
   /**
-   * Persistence integration (Story 2-4). When the caller supplies a
-   * `persistence` adapter, the store is augmented with two behaviors:
+   * Persistence integration. When the caller supplies a `persistence`
+   * adapter, the bridge installs a hydration + throttled save path
+   * that mirrors the persistable slices (worldConfig, installedApps,
+   * navigationHistory, coreTools, categories) to the on-disk adapter.
    *
-   *   1. Hydration: on construction, the worldConfig slice is read
-   *      from disk and merged into the runtime state. The
-   *      `installedApps` list and the `navigationHistory` are also
-   *      read, but those values already round-trip through the
-   *      `persist` middleware above; the disk read here is a
-   *      belt-and-braces fallback for renderers that boot before
-   *      the `persist` middleware finishes (the persist middleware's
-   *      own hydration remains the source of truth).
-   *
-   *   2. Save middleware: a trailing-edge throttle coalesces store
-   *      mutations so a burst of FPS / navigation / install updates
-   *      produces at most one disk write per `throttleMs` window.
-   *      The throttle carries the latest snapshot so the most
-   *      recent state always lands on disk before the renderer
-   *      unloads.
-   *
-   * Throttle note: we use trailing-edge only. A leading-edge call
-   * would race with the first state mutation, writing a stale
-   * snapshot to disk that would then be rehydrated on the next
-   * boot — a subtle but expensive form of data loss. Trailing
-   * always carries the freshest snapshot.
-   *
-   * The actual wiring lives in `installPersistenceBridge` so
-   * `attachPersistence` and `createAppStore` share the exact same
-   * code path. See that helper for the full behavior contract.
+   * See `./persistenceBridge.js` for the full behavior contract.
    */
   installPersistenceBridge(store, persistence, { throttleMs, logger: persistenceLogger });
 
   return store;
-};
-
-/**
- * Install the persistence bridge on a store. This is the single
- * source of truth for "wire a persistence adapter into a store" —
- * `createAppStore` and `attachPersistence` both go through here so
- * the two paths can never drift.
- *
- * Behavior contract:
- *
- *   - If `adapter` is missing or does not expose `getWorldConfig`,
- *     the call is a no-op and the store is returned unchanged.
- *   - If the store already has a `persistenceCancel` teardown hook
- *     (from a previous bridge), the teardown runs first so a double
- *     attach never stacks listeners.
- *   - The adapter is read once to hydrate the `worldConfig` slice.
- *     Errors are surfaced through the logger but never thrown.
- *   - A throttled writer coalesces mutations so at most one disk
- *     write per `throttleMs` window leaves the process.
- *   - A dirty-checked subscription forwards changed slices to the
- *     throttled writer. Unchanged slices (FPS ticks, etc.) are
- *     short-circuited.
- *   - The store is augmented with `persistenceFlush` and
- *     `persistenceCancel` hooks. `persistenceFlush` runs any
- *     pending trailing write; `persistenceCancel` discards the
- *     pending write AND unsubscribes the store listener.
- *
- * @param {Object} store       The Zustand store to augment.
- * @param {Object} adapter     The persistence wrapper.
- * @param {Object} [opts]
- * @param {number} [opts.throttleMs=250]
- * @param {Function} [opts.logger]
- * @returns {Object}           The same `store` reference, for chaining.
- */
-const installPersistenceBridge = (store, adapter, opts = {}) => {
-  if (!store || !adapter || typeof adapter.getWorldConfig !== 'function') {
-    return store;
-  }
-  // Tear down a prior bridge before installing a new one. Without
-  // this, a double attach would stack subscribers and the
-  // persistenceFlush / persistenceCancel hooks would point at the
-  // older (cancelled) writer.
-  if (typeof store.persistenceCancel === 'function') {
-    try {
-      store.persistenceCancel();
-    } catch {
-      // Best-effort: a previous bridge's teardown failure must not
-      // prevent the new bridge from being installed.
-    }
-  }
-  const throttleMs = typeof opts.throttleMs === 'number' ? opts.throttleMs : 250;
-  const persistenceLogger = typeof opts.logger === 'function' ? opts.logger : () => {};
-
-  // Hydrate the worldConfig slice from disk so a renderer that
-  // boots before the `persist` middleware finishes still observes
-  // the on-disk seed.
-  try {
-    const onDisk = adapter.getWorldConfig();
-    store.setState((state) => ({
-      worldConfig: sanitizeWorldConfig({ ...state.worldConfig, ...onDisk }),
-    }));
-  } catch (err) {
-    persistenceLogger('[Store] persistence hydration failed', {
-      error: err && err.message ? err.message : String(err),
-    });
-  }
-
-  const throttledWrite = throttleTrailing((snapshot) => {
-    try {
-      adapter.setWorldConfig(snapshot.worldConfig);
-      if (snapshot.installState) {
-        adapter.setInstalledApps(snapshot.installState.installedApps || []);
-      }
-      if (snapshot.navigationState) {
-        adapter.setNavigationHistory(snapshot.navigationState.history || []);
-      }
-    } catch (err) {
-      persistenceLogger('[Store] persistence save failed', {
-        error: err && err.message ? err.message : String(err),
-      });
-    }
-  }, throttleMs);
-
-  // Track the previous slice so we can detect actual changes. The
-  // subscribe listener fires on every mutation; without this guard
-  // we would write to disk on every FPS tick, every navigation
-  // transition, and every frame update — the very spike the
-  // throttle is meant to absorb.
-  let previous = {
-    worldConfig: null,
-    installedApps: null,
-    navigationHistory: null,
-  };
-  const unsubscribe = store.subscribe((state) => {
-    const worldConfig = state.worldConfig;
-    const installedApps = state.installState.installedApps;
-    const navigationHistory = state.navigationState.history;
-    const dirty =
-      !shallowEqualSlice(previous.worldConfig, worldConfig) ||
-      !shallowEqualArray(previous.installedApps, installedApps) ||
-      !shallowEqualArray(previous.navigationHistory, navigationHistory);
-    if (!dirty) {
-      return;
-    }
-    previous = {
-      worldConfig: { ...worldConfig },
-      installedApps: installedApps.slice(),
-      navigationHistory: navigationHistory.slice(),
-    };
-    throttledWrite({
-      worldConfig,
-      installState: { installedApps },
-      navigationState: { history: navigationHistory },
-    });
-  });
-
-  // Expose flush/cancel so the renderer can flush pending writes
-  // before the window closes. `cancel` also tears down the store
-  // subscription so the bridge is fully reversible.
-  store.persistenceFlush = () => throttledWrite.flush();
-  store.persistenceCancel = () => {
-    throttledWrite.cancel();
-    if (typeof unsubscribe === 'function') {
-      unsubscribe();
-    }
-  };
-  return store;
-};
-
-/**
- * Shallow-compare two slice snapshots. Returns `true` when both
- * inputs are reference-equal OR when every key on `a` matches the
- * same key on `b` under `===` (with `a` keys used as the
- * authoritative set). New keys on `b` count as a change so an
- * evolving slice is not silently ignored.
- */
-const shallowEqualSlice = (a, b) => {
-  if (a === b) {
-    return true;
-  }
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') {
-    return false;
-  }
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) {
-    return false;
-  }
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) {
-      return false;
-    }
-  }
-  return true;
-};
-
-/**
- * Shallow-compare two arrays. Length and per-index reference equality
- * are sufficient for our slice because every action replaces the
- * array rather than mutating it in place.
- */
-const shallowEqualArray = (a, b) => {
-  if (a === b) {
-    return true;
-  }
-  if (!Array.isArray(a) || !Array.isArray(b)) {
-    return false;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
 };
 
 /**
@@ -1234,17 +1045,10 @@ const shallowEqualArray = (a, b) => {
 export const useAppStore = createAppStore();
 
 /**
- * Attach a persistence adapter to an existing store. Mirrors the
- * integration `createAppStore({ persistence })` performs during
- * construction, but can be invoked *after* the singleton has been
- * imported — useful when the persistence adapter depends on
- * Electron globals that are only available after `app.whenReady()`
- * fires.
- *
- * Calling this twice on the same store replaces the prior
- * subscription and re-installs the throttle. The function is
- * idempotent — re-attaching the same adapter does not stack
- * listeners.
+ * Attach a persistence adapter to an existing store. Thin re-export
+ * of the shared bridge so callers that imported `attachPersistence`
+ * from `store.js` keep working unchanged. The behavior contract lives
+ * in `./persistenceBridge.js`.
  *
  * @param {Object} store
  * @param {Object} adapter
@@ -1256,11 +1060,6 @@ export const attachPersistence = (store, adapter, opts = {}) => {
   if (!store || !adapter) {
     return store;
   }
-  // Delegate to the shared bridge. The bridge tears down a prior
-  // bridge (if any) before installing the new one, so calling
-  // `attachPersistence` a second time on the same store replaces
-  // the prior subscription and re-installs the throttle — the
-  // function is idempotent and never stacks listeners.
   return installPersistenceBridge(store, adapter, opts);
 };
 

@@ -18,10 +18,10 @@ import { createJSONStorage } from 'zustand/middleware';
 import {
   createPersistence,
   createMemoryStore,
-  DEFAULT_WORLD_CONFIG,
   PERSIST_NAMESPACE,
 } from './persistence.js';
-import { createAppStore, createMemoryStorage } from './store.js';
+import { DEFAULT_WORLD_CONFIG } from './defaults.js';
+import { createAppStore, createMemoryStorage, APP_VIEW } from './store.js';
 
 const jsonMemoryStorage = () => createJSONStorage(() => createMemoryStorage());
 
@@ -279,6 +279,64 @@ describe('state/persistence.js (Story 2-4)', () => {
       expect(typeof store.persistenceFlush).toBe('function');
       expect(() => store.persistenceFlush()).not.toThrow();
     });
+
+    it('mirrors coreTools through the persistence adapter', async () => {
+      store.getState().setCoreTools({ sunshine: true, vdd: false, playnite: true });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      store.persistenceFlush?.();
+      expect(persistence.getCoreTools()).toEqual({
+        sunshine: true,
+        vdd: false,
+        playnite: true,
+      });
+    });
+
+    it('mirrors categories through the persistence adapter', async () => {
+      store.getState().setCategories([
+        { id: 'games', name: 'Games', color: 0x4fc3f7, installed: true },
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      store.persistenceFlush?.();
+      const persisted = persistence.getCategories();
+      const games = persisted.find((entry) => entry.id === 'games');
+      expect(games).toBeDefined();
+      expect(games.installed).toBe(true);
+    });
+
+    it('persistence adapter and persist middleware agree after a save+rehydrate cycle', async () => {
+      // Use a SHARED storage between the two stores so the persist
+      // middleware's localStorage round-trip works in addition to
+      // the persistence adapter. A per-store storage would force the
+      // rehydrated store to start from the factory defaults and the
+      // test would exercise the wrong code path.
+      const sharedStorage = jsonMemoryStorage();
+      const first = createAppStore({
+        storage: sharedStorage,
+        persistence,
+        throttleMs: 0,
+        logger: () => {},
+      });
+      first.getState().setSeed(4242);
+      first.getState().addInstalledApp({ id: 'sunshine' });
+      first.getState().setCoreTools({ sunshine: true });
+      first.getState().setCurrentView(APP_VIEW.SETTINGS);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      first.persistenceFlush?.();
+      // Build a second store reading from the same persistence
+      // adapter AND the same persist-middleware storage. The seed,
+      // installedApps, and coreTools slices should be consistent on
+      // both storage layers after the rehydrate cycle.
+      const rehydrated = createAppStore({
+        storage: sharedStorage,
+        persistence,
+        throttleMs: 0,
+        logger: () => {},
+      });
+      expect(rehydrated.getState().worldConfig.seed).toBe(4242);
+      expect(rehydrated.getState().installState.installedApps[0].id).toBe('sunshine');
+      expect(rehydrated.getState().coreTools.sunshine).toBe(true);
+      expect(persistence.getCoreTools().sunshine).toBe(true);
+    });
   });
 
   describe('module exports', () => {
@@ -292,6 +350,8 @@ describe('state/persistence.js (Story 2-4)', () => {
         WORLD_CONFIG: 'worldConfig',
         INSTALLED_APPS: 'installedApps',
         NAVIGATION_HISTORY: 'navigationHistory',
+        CORE_TOOLS: 'coreTools',
+        CATEGORIES: 'categories',
       });
     });
   });
@@ -311,11 +371,15 @@ describe('state/persistence.js (Story 2-4)', () => {
         worldConfig: { seed: 1 },
         installedApps: [{ id: 'a' }],
         navigationHistory: ['solar-system'],
+        coreTools: { sunshine: true, vdd: false, playnite: false },
+        categories: [{ id: 'games', name: 'Games', color: 0x4fc3f7, installed: false }],
       });
       shim.clear();
       expect(shim.get('worldConfig', 'gone')).toBe('gone');
       expect(shim.get('installedApps', 'gone')).toBe('gone');
       expect(shim.get('navigationHistory', 'gone')).toBe('gone');
+      expect(shim.get('coreTools', 'gone')).toBe('gone');
+      expect(shim.get('categories', 'gone')).toBe('gone');
     });
   });
 

@@ -65,3 +65,37 @@ export const pickFreshSeed = (previousSeed, ts) => {
   const candidate = ((now & 0xffff) << 16) | (REGEN_COUNTER & 0xffff);
   return candidate === previousSeed ? candidate + 1 : candidate;
 };
+
+/**
+ * The largest seed value the planet factory's bit math can encode
+ * without precision loss. Anything larger than this collapses to the
+ * counter-driven default in `pickFreshSeed`.
+ */
+export const MAX_SEED = 2 ** 32 - 1;
+
+/**
+ * Coerce a user-supplied seed into the documented range. Returns
+ * `null` when the input is missing or out of range so the caller can
+ * fall back to `pickFreshSeed`. The bounds are:
+ *   - must be a finite number (rejects NaN, Infinity, strings)
+ *   - must be a safe integer (rejects MAX_SAFE_INTEGER + 1, floats)
+ *   - must be non-negative
+ *   - must fit in 32 bits (rejects values that would lose precision
+ *     when encoded into the seed bit math downstream).
+ *
+ * Centralising the check means `regenerateWorld` and `setSeed` both
+ * accept the same input shape and never let an out-of-range integer
+ * reach the bit math that derives per-planet slots.
+ */
+export const coerceSeed = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  if (!Number.isSafeInteger(value)) {
+    return null;
+  }
+  if (value < 0 || value > MAX_SEED) {
+    return null;
+  }
+  return Math.floor(value);
+};

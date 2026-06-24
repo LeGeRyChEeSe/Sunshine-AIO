@@ -136,6 +136,13 @@ const showRegenStatus = (text) => {
   }, 3000);
 };
 
+// Bound at runtime by the try block below. Declared up here so the
+// early-wired regen button handler can reach it via closure without
+// leaking the rebuild function onto the global `window` object
+// (which would expose a force-rebuild entry point to any future
+// renderer-side script injection).
+let rebuildPlanetsRef = null;
+
 /**
  * Ask the user to confirm a regenerate. Returns true when confirmed.
  * We use a small stack of fallbacks so the affordance keeps working
@@ -207,8 +214,8 @@ const confirmRegenerate = (installedCount) => {
 regenButton.addEventListener('click', async () => {
   // The handler is wired early so the button is responsive on the
   // first paint, but it defers all reads/writes to the closures
-  // `useAppStore` / `rebuildPlanets` which are populated inside the
-  // try block below. Until then the handler captures the current
+  // `useAppStore` / `rebuildPlanetsRef` which are populated inside
+  // the try block below. Until then the handler captures the current
   // snapshot via `useAppStore.getState()`.
   const installedCount = useAppStore.getState().installState.installedApps.length;
   let confirmed;
@@ -222,12 +229,12 @@ regenButton.addEventListener('click', async () => {
     return;
   }
   const next = useAppStore.getState().regenerateWorld();
-  // The factory rebuild is hooked up once the store is attached; if
-  // the user clicked before the scene finished initializing the
-  // rebuild will simply run on the next tick because the seed
-  // subscription is in place.
-  if (typeof window.__sunshineRebuildPlanets === 'function') {
-    window.__sunshineRebuildPlanets(true);
+  // The factory rebuild is hooked up once the scene finishes
+  // initializing; if the user clicked before that, the seed
+  // subscription installed below will rebuild the factory on the
+  // next tick.
+  if (typeof rebuildPlanetsRef === 'function') {
+    rebuildPlanetsRef(true);
   }
   showRegenStatus(`New seed: ${next.seed}`);
   logger('[Renderer] World regenerated', next);
@@ -269,8 +276,18 @@ try {
   // The on-disk file is namespaced via `PERSIST_NAMESPACE` so the
   // application does not collide with other Electron apps sharing
   // the same `userData` directory.
+  //
+  // Boot order matters: the persistence adapter is constructed and
+  // attached BEFORE the planet factory is built so the
+  // `installPersistenceBridge` hydration runs synchronously and
+  // mutates `worldConfig.seed` before `createPlanetsForCategories`
+  // reads it. Building the factory in a single pass with the
+  // rehydrated seed avoids the "one-frame flash of the default-seed
+  // layout" regression — the user sees exactly one consistent first
+  // paint.
+  const store = useAppStore;
   const persistence = createPersistence({ logger, name: PERSIST_NAMESPACE });
-  attachPersistence(useAppStore, persistence, { logger });
+  attachPersistence(store, persistence, { logger });
 
   // After the persistence adapter has rehydrated `installState.installedApps`
   // from disk, the `categories` and `coreTools` slices still carry the
@@ -294,7 +311,6 @@ try {
   // disk). `rebuildPlanets(force=false)` is idempotent: when the
   // seed matches the factory's current seed, the call is a no-op so
   // a no-op regenerateWorld() does not waste GPU resources.
-  const store = useAppStore;
   let planetsFactory = createPlanetsForCategories({
     THREE,
     categories: store.getState().categories,
@@ -331,12 +347,13 @@ try {
     logger('[Renderer] Planet factory rebuilt', { seed: nextSeed });
   };
 
-  // Expose the rebuild function for the early-wired regen button
-  // click handler. The button is responsive on first paint so we
-  // cannot await the try block to assign a closure variable.
-  if (typeof window !== 'undefined') {
-    window.__sunshineRebuildPlanets = rebuildPlanets;
-  }
+  // Bind the rebuild closure to the early-wired regen button handler.
+  // The button is responsive on first paint so we cannot await the
+  // try block to assign a closure variable. Using a let-bound
+  // reference (instead of a `window.*` global) keeps the rebuild
+  // function scoped to the renderer module so a future script
+  // injection cannot reach in and force an unbounded rebuild.
+  rebuildPlanetsRef = rebuildPlanets;
 
   sceneController.start();
 

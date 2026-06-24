@@ -56,7 +56,8 @@
 import Store from 'electron-store';
 
 import { DEFAULT_CATEGORIES } from './store.js';
-import { pickFreshSeed } from './seed.js';
+import { DEFAULT_WORLD_CONFIG, DEFAULT_INSTALLED_APPS, DEFAULT_NAVIGATION_HISTORY } from './defaults.js';
+import { pickFreshSeed, coerceSeed } from './seed.js';
 
 /**
  * Stable storage key prefix. Used by both the wrapper and tests so a
@@ -68,37 +69,36 @@ const KEYS = Object.freeze({
   WORLD_CONFIG: 'worldConfig',
   INSTALLED_APPS: 'installedApps',
   NAVIGATION_HISTORY: 'navigationHistory',
+  CORE_TOOLS: 'coreTools',
+  CATEGORIES: 'categories',
 });
 
 /**
- * The default world configuration. A fresh install ships with a
- * deterministic seed (`42`) so the solar system renders the same way
- * on every machine. The seed is a non-negative integer; the planet
- * factory multiplies it by a stable formula to derive per-planet
- * orbital slots.
+ * Default core-tools map. Mirrors the canonical `CORE_TOOL_IDS`
+ * whitelist from `store.js`. Every value starts as `false`; the
+ * renderer's "Regenerate World" affordance and the future
+ * "reset to defaults" affordance rely on this snapshot to rebuild
+ * the slice after a corruption event.
  */
-export const DEFAULT_WORLD_CONFIG = Object.freeze({
-  seed: 42,
-  lastRegeneratedAt: null,
-  // Whether the user has explicitly regenerated at least once. Used
-  // by the renderer's "Regenerate World" affordance to decide whether
-  // the button should pulse / announce itself.
-  regenerated: false,
+const DEFAULT_CORE_TOOLS = Object.freeze({
+  sunshine: false,
+  vdd: false,
+  playnite: false,
 });
 
 /**
- * Default installed-apps list. The empty array is intentional — a
- * brand-new install has nothing to migrate.
+ * Default categories snapshot. Mirrors the descriptors from
+ * `DEFAULT_CATEGORIES` in `store.js` so the persistence wrapper can
+ * rebuild the slice after a corruption event without an import cycle.
  */
-export const DEFAULT_INSTALLED_APPS = Object.freeze([]);
-
-/**
- * Default navigation history. The history is a list of view ids
- * (matching the `APP_VIEW` enum in store.js). The wrapper keeps the
- * value as an opaque string array; the store handles validation on
- * its side via `setCurrentView`.
- */
-export const DEFAULT_NAVIGATION_HISTORY = Object.freeze([]);
+const DEFAULT_CATEGORIES_PERSISTED = Object.freeze(
+  DEFAULT_CATEGORIES.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    color: entry.color,
+    installed: false,
+  }))
+);
 
 /**
  * Default categories snapshot. Story 2-3 ships a small, stable list
@@ -152,10 +152,12 @@ const sanitizeWorldConfig = (raw) => {
   if (!raw || typeof raw !== 'object') {
     return { ...DEFAULT_WORLD_CONFIG };
   }
-  const seed =
-    typeof raw.seed === 'number' && Number.isFinite(raw.seed) && raw.seed >= 0
-      ? Math.floor(raw.seed)
-      : DEFAULT_WORLD_CONFIG.seed;
+  // `coerceSeed` enforces the 32-bit safe-integer range. Anything
+  // outside that range (MAX_SAFE_INTEGER + 1, NaN, floats) collapses
+  // to the default so the bit math downstream always receives a
+  // value it can encode without precision loss.
+  const coerced = coerceSeed(raw.seed);
+  const seed = coerced !== null ? coerced : DEFAULT_WORLD_CONFIG.seed;
   const lastRegeneratedAt =
     typeof raw.lastRegeneratedAt === 'number' && Number.isFinite(raw.lastRegeneratedAt)
       ? raw.lastRegeneratedAt
@@ -204,6 +206,69 @@ const sanitizeNavigationHistory = (raw) => {
 };
 
 /**
+ * The canonical core-tool ids, mirrored from `store.js`. Used to
+ * validate persisted payloads so a forged entry cannot smuggle an
+ * arbitrary key (e.g. `"__proto__"`) into the adapter's read path.
+ */
+const PERSISTED_CORE_TOOL_IDS = Object.freeze(['sunshine', 'vdd', 'playnite']);
+
+/**
+ * Sanitize the coreTools persisted blob. Only the canonical tool ids
+ * are accepted; every value is coerced to a boolean so a stringy
+ * `"true"` cannot poison the slice. Missing keys fall back to
+ * `false` so a partial payload cannot accidentally mark a tool as
+ * installed.
+ */
+const sanitizeCoreTools = (raw) => {
+  const result = { ...DEFAULT_CORE_TOOLS };
+  if (!raw || typeof raw !== 'object') {
+    return result;
+  }
+  for (const id of PERSISTED_CORE_TOOL_IDS) {
+    result[id] = Boolean(raw[id]);
+  }
+  return result;
+};
+
+/**
+ * Sanitize the categories persisted blob. Drops entries without a
+ * string id, normalises `name` to a string (falls back to the id),
+ * accepts a numeric or CSS hex `color`, and coerces `installed` to
+ * a boolean. Order is preserved and duplicates are dropped (first
+ * occurrence wins). Extra keys are silently dropped so a caller
+ * cannot inject arbitrary fields into the slice.
+ */
+const sanitizeCategories = (raw) => {
+  if (!Array.isArray(raw)) {
+    return DEFAULT_CATEGORIES_PERSISTED.map((entry) => ({ ...entry }));
+  }
+  const seen = new Set();
+  const result = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || !entry.id) {
+      continue;
+    }
+    if (seen.has(entry.id)) {
+      continue;
+    }
+    seen.add(entry.id);
+    let color = entry.color;
+    if (typeof color === 'number') {
+      color = Number.isFinite(color) && color >= 0 ? color | 0 : null;
+    } else if (typeof color !== 'string') {
+      color = null;
+    }
+    result.push({
+      id: entry.id,
+      name: typeof entry.name === 'string' && entry.name ? entry.name : entry.id,
+      color,
+      installed: Boolean(entry.installed),
+    });
+  }
+  return result;
+};
+
+/**
  * Default factory: lazy-import electron-store so the unit tests can
  * run with a shim. The factory returns a fresh `Store` instance on
  * every call so each call to `createPersistence({ useMemory: false })`
@@ -225,6 +290,8 @@ const defaultStoreFactory = (opts = {}) => {
       [KEYS.WORLD_CONFIG]: { ...DEFAULT_WORLD_CONFIG },
       [KEYS.INSTALLED_APPS]: [...DEFAULT_INSTALLED_APPS],
       [KEYS.NAVIGATION_HISTORY]: [...DEFAULT_NAVIGATION_HISTORY],
+      [KEYS.CORE_TOOLS]: { ...DEFAULT_CORE_TOOLS },
+      [KEYS.CATEGORIES]: DEFAULT_CATEGORIES_PERSISTED.map((entry) => ({ ...entry })),
     },
   });
 };
@@ -264,7 +331,9 @@ export const createMemoryStore = (initial = {}) => {
           key in initial ||
           key === KEYS.WORLD_CONFIG ||
           key === KEYS.INSTALLED_APPS ||
-          key === KEYS.NAVIGATION_HISTORY
+          key === KEYS.NAVIGATION_HISTORY ||
+          key === KEYS.CORE_TOOLS ||
+          key === KEYS.CATEGORIES
         ) {
           delete data.store[key];
         }
@@ -309,6 +378,8 @@ export const createPersistence = (opts = {}) => {
       [KEYS.WORLD_CONFIG]: { ...DEFAULT_WORLD_CONFIG },
       [KEYS.INSTALLED_APPS]: [...DEFAULT_INSTALLED_APPS],
       [KEYS.NAVIGATION_HISTORY]: [...DEFAULT_NAVIGATION_HISTORY],
+      [KEYS.CORE_TOOLS]: { ...DEFAULT_CORE_TOOLS },
+      [KEYS.CATEGORIES]: DEFAULT_CATEGORIES_PERSISTED.map((entry) => ({ ...entry })),
     });
   } else if (typeof opts.storeFactory === 'function') {
     store = opts.storeFactory({ name: effectiveName });
@@ -411,6 +482,48 @@ export const createPersistence = (opts = {}) => {
     },
 
     /**
+     * Read the coreTools slice. Always returns a sanitized object
+     * restricted to the canonical tool ids so a forged payload
+     * cannot smuggle arbitrary keys into the read path.
+     */
+    getCoreTools: () => {
+      const raw = safeGet(KEYS.CORE_TOOLS, { ...DEFAULT_CORE_TOOLS });
+      return sanitizeCoreTools(raw);
+    },
+
+    /**
+     * Replace the coreTools slice. The new value is sanitized
+     * (unknown keys dropped, every value coerced to a boolean) so a
+     * caller cannot inject malformed data.
+     */
+    setCoreTools: (next) => {
+      const sanitized = sanitizeCoreTools(next);
+      return safeSet(KEYS.CORE_TOOLS, sanitized);
+    },
+
+    /**
+     * Read the categories slice. Always returns a sanitized array of
+     * `{ id, name, color, installed }` objects; duplicates are
+     * dropped, missing ids fall back to the documented defaults.
+     */
+    getCategories: () => {
+      const raw = safeGet(
+        KEYS.CATEGORIES,
+        DEFAULT_CATEGORIES_PERSISTED.map((entry) => ({ ...entry }))
+      );
+      return sanitizeCategories(raw);
+    },
+
+    /**
+     * Replace the categories slice. The new value is sanitized so a
+     * caller cannot inject malformed data.
+     */
+    setCategories: (next) => {
+      const sanitized = sanitizeCategories(next);
+      return safeSet(KEYS.CATEGORIES, sanitized);
+    },
+
+    /**
      * Regenerate the world. Picks a new non-negative integer seed
      * using the injected clock + a counter so two rapid clicks in
      * the same millisecond still produce different seeds. The new
@@ -427,10 +540,14 @@ export const createPersistence = (opts = {}) => {
      */
     regenerateWorld: (opts = {}) => {
       const current = sanitizeWorldConfig(safeGet(KEYS.WORLD_CONFIG, { ...DEFAULT_WORLD_CONFIG }));
+      // The forced seed must be a non-negative integer in the safe
+      // range. Anything outside that range (MAX_SAFE_INTEGER + 1,
+      // negatives, NaN, non-numbers) collapses to a fresh pick from
+      // the shared counter so the bit math in `pickFreshSeed` always
+      // operates on a value it can safely encode.
+      const forcedSeed = coerceSeed(opts.seed);
       const seed =
-        typeof opts.seed === 'number' && Number.isFinite(opts.seed) && opts.seed >= 0
-          ? Math.floor(opts.seed)
-          : pickFreshSeed(current.seed, now());
+        forcedSeed !== null ? forcedSeed : pickFreshSeed(current.seed, now());
       const next = {
         seed,
         lastRegeneratedAt: now(),
@@ -450,6 +567,11 @@ export const createPersistence = (opts = {}) => {
       safeSet(KEYS.WORLD_CONFIG, { ...DEFAULT_WORLD_CONFIG });
       safeSet(KEYS.INSTALLED_APPS, [...DEFAULT_INSTALLED_APPS]);
       safeSet(KEYS.NAVIGATION_HISTORY, [...DEFAULT_NAVIGATION_HISTORY]);
+      safeSet(KEYS.CORE_TOOLS, { ...DEFAULT_CORE_TOOLS });
+      safeSet(
+        KEYS.CATEGORIES,
+        DEFAULT_CATEGORIES_PERSISTED.map((entry) => ({ ...entry }))
+      );
     },
   };
 };

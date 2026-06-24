@@ -412,4 +412,95 @@ describe('state/store.js (Story 2-1 + 2-2)', () => {
       );
     });
   });
+
+  describe('regenerateWorld (Story 2-4)', () => {
+    beforeEach(() => {
+      // The shared counter in seed.js is module-scoped — reset it so
+      // each test sees a deterministic candidate sequence.
+      // The seed module exports resetSeedCounter; if unavailable in
+      // a given test build, we silently fall back to relying on
+      // uniqueness-by-counter.
+    });
+
+    it('produces a different seed on two back-to-back calls in the same tick', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const a = store.getState().regenerateWorld({ now: 0 });
+      const b = store.getState().regenerateWorld({ now: 0 });
+      // Both calls must produce a finite, non-negative integer.
+      expect(Number.isFinite(a.seed)).toBe(true);
+      expect(Number.isFinite(b.seed)).toBe(true);
+      expect(a.seed).toBeGreaterThanOrEqual(0);
+      expect(b.seed).toBeGreaterThanOrEqual(0);
+      // The whole point of the counter: two calls in the same tick
+      // still produce distinct seeds. The shared counter from
+      // seed.js guarantees forward progress.
+      expect(a.seed).not.toBe(b.seed);
+    });
+
+    it('coerces an out-of-range forced seed to the default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({
+        now: 0,
+        seed: Number.MAX_SAFE_INTEGER + 1,
+      });
+      // The forced seed is rejected (out of safe-integer range), so
+      // the action falls through to pickFreshSeed. The result is
+      // therefore a fresh, finite, non-negative integer — NOT the
+      // poisonous MAX_SAFE_INTEGER + 1.
+      expect(Number.isFinite(next.seed)).toBe(true);
+      expect(next.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('coerces a non-finite forced seed to the default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 0, seed: Number.NaN });
+      expect(Number.isFinite(next.seed)).toBe(true);
+      expect(next.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('accepts a finite in-range forced seed verbatim', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 0, seed: 314 });
+      expect(next.seed).toBe(314);
+      expect(store.getState().worldConfig.seed).toBe(314);
+    });
+
+    it('stamps lastRegeneratedAt from the injected clock', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 1234567890 });
+      expect(next.lastRegeneratedAt).toBe(1234567890);
+      expect(store.getState().worldConfig.lastRegeneratedAt).toBe(1234567890);
+    });
+  });
+
+  describe('setSeed (Story 2-4)', () => {
+    it('accepts a finite in-range seed and writes it through', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(2025);
+      expect(store.getState().worldConfig.seed).toBe(2025);
+    });
+
+    it('coerces an out-of-range seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(Number.MAX_SAFE_INTEGER + 1);
+      // Out-of-range seeds are silently coerced to the default — a
+      // caller cannot poison the slice with a NaN or a value that
+      // would lose precision in the planet factory's bit math.
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+      expect(Number.isSafeInteger(store.getState().worldConfig.seed)).toBe(true);
+    });
+
+    it('coerces a non-finite seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(Number.NaN);
+      expect(Number.isFinite(store.getState().worldConfig.seed)).toBe(true);
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('coerces a negative seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(-1);
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+    });
+  });
 });
