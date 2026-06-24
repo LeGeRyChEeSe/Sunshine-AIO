@@ -52,7 +52,7 @@ import { createScene } from './three/setup.js';
 import { createSun, CORE_TOOLS } from './three/sun.js';
 import { createPlanetsForCategories } from './three/planetFactory.js';
 import { useAppStore, APP_VIEW, attachPersistence } from './state/store.js';
-import { createPersistence } from './state/persistence.js';
+import { createPersistence, PERSIST_NAMESPACE } from './state/persistence.js';
 
 const appRoot = document.getElementById('app');
 if (!appRoot) {
@@ -265,8 +265,22 @@ try {
   // store from disk on boot and mirrors every mutation back through
   // a throttled save middleware. The adapter is constructed once at
   // startup; every renderer-driven action goes through it.
-  const persistence = createPersistence({ logger });
+  //
+  // The on-disk file is namespaced via `PERSIST_NAMESPACE` so the
+  // application does not collide with other Electron apps sharing
+  // the same `userData` directory.
+  const persistence = createPersistence({ logger, name: PERSIST_NAMESPACE });
   attachPersistence(useAppStore, persistence, { logger });
+
+  // After the persistence adapter has rehydrated `installState.installedApps`
+  // from disk, the `categories` and `coreTools` slices still carry the
+  // factory-default `installed: false` flags. The two derivations below
+  // repaint the planet factory + the sun's satellite indicators from
+  // the freshly-rehydrated install list so a user with persisted
+  // installs sees the correct colors on the first paint — and not in
+  // a confusing "everything is uninstalled" flash.
+  store.getState().syncCategoriesFromInstalls();
+  store.getState().syncCoreToolsFromInstalls();
 
   // Story 2-3: build the planet factory from the store's categories
   // slice, attach it to the scene controller, and subscribe to slice
@@ -364,6 +378,27 @@ try {
   };
   pushCategories(store.getState().categories);
   store.subscribe((state) => state.categories, pushCategories);
+
+  // AC3 wiring: `addInstalledApp` / `removeInstalledApp` mutate
+  // `installState.installedApps` but never touch `categories` directly.
+  // The planet factory however subscribes to the `categories` slice
+  // (see above). Without this listener, installing or uninstalling an
+  // app would have zero visual effect on the planet colors until
+  // something else happened to flip a category flag.
+  //
+  // We subscribe to the installedApps slice and re-derive both
+  // `categories` and `coreTools` from it. The store actions are pure
+  // and idempotent — when the derived state is identical, the slice
+  // is left untouched (no spurious subscriber wake-ups).
+  const pushInstalls = (installedApps) => {
+    if (!Array.isArray(installedApps)) {
+      return;
+    }
+    store.getState().syncCategoriesFromInstalls();
+    store.getState().syncCoreToolsFromInstalls();
+  };
+  pushInstalls(store.getState().installState.installedApps);
+  store.subscribe((state) => state.installState.installedApps, pushInstalls);
 
   // Story 2-4: rebuild the planet factory whenever the worldConfig
   // seed changes (regenerate, manual setSeed, rehydrate from disk).

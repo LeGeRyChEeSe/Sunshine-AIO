@@ -53,6 +53,8 @@
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage, subscribeWithSelector } from 'zustand/middleware';
 
+import { pickFreshSeed } from './seed.js';
+
 export const STORE_NAME = 'sunshine-aio-app-state';
 export const STORE_VERSION = 2;
 
@@ -218,20 +220,6 @@ export const createMemoryStorage = () => {
       map.delete(name);
     },
   };
-};
-
-/**
- * Pick a fresh seed that differs from the previous one. We use a
- * module-level counter that advances on every call so two back-to-back
- * regenerates in the same millisecond still produce distinct seeds.
- * Tests that want deterministic seeds pass them through the `seed`
- * option directly to bypass the counter.
- */
-let REGEN_COUNTER = 0;
-const pickFreshSeed = (previousSeed, ts) => {
-  REGEN_COUNTER += 1;
-  const candidate = ((ts & 0xffff) << 16) | (REGEN_COUNTER & 0xffff);
-  return candidate === previousSeed ? candidate + 1 : candidate;
 };
 
 /**
@@ -1022,10 +1010,8 @@ export const createAppStore = (opts = {}) => {
   );
 
   /**
-   * Persistence integration (Story 2-4).
-   *
-   * When the caller supplies a `persistence` adapter, the store is
-   * augmented with two behaviors:
+   * Persistence integration (Story 2-4). When the caller supplies a
+   * `persistence` adapter, the store is augmented with two behaviors:
    *
    *   1. Hydration: on construction, the worldConfig slice is read
    *      from disk and merged into the runtime state. The
@@ -1048,74 +1034,140 @@ export const createAppStore = (opts = {}) => {
    * snapshot to disk that would then be rehydrated on the next
    * boot — a subtle but expensive form of data loss. Trailing
    * always carries the freshest snapshot.
+   *
+   * The actual wiring lives in `installPersistenceBridge` so
+   * `attachPersistence` and `createAppStore` share the exact same
+   * code path. See that helper for the full behavior contract.
    */
-  if (persistence && typeof persistence.getWorldConfig === 'function') {
+  installPersistenceBridge(store, persistence, { throttleMs, logger: persistenceLogger });
+
+  return store;
+};
+
+/**
+ * Install the persistence bridge on a store. This is the single
+ * source of truth for "wire a persistence adapter into a store" —
+ * `createAppStore` and `attachPersistence` both go through here so
+ * the two paths can never drift.
+ *
+ * Behavior contract:
+ *
+ *   - If `adapter` is missing or does not expose `getWorldConfig`,
+ *     the call is a no-op and the store is returned unchanged.
+ *   - If the store already has a `persistenceCancel` teardown hook
+ *     (from a previous bridge), the teardown runs first so a double
+ *     attach never stacks listeners.
+ *   - The adapter is read once to hydrate the `worldConfig` slice.
+ *     Errors are surfaced through the logger but never thrown.
+ *   - A throttled writer coalesces mutations so at most one disk
+ *     write per `throttleMs` window leaves the process.
+ *   - A dirty-checked subscription forwards changed slices to the
+ *     throttled writer. Unchanged slices (FPS ticks, etc.) are
+ *     short-circuited.
+ *   - The store is augmented with `persistenceFlush` and
+ *     `persistenceCancel` hooks. `persistenceFlush` runs any
+ *     pending trailing write; `persistenceCancel` discards the
+ *     pending write AND unsubscribes the store listener.
+ *
+ * @param {Object} store       The Zustand store to augment.
+ * @param {Object} adapter     The persistence wrapper.
+ * @param {Object} [opts]
+ * @param {number} [opts.throttleMs=250]
+ * @param {Function} [opts.logger]
+ * @returns {Object}           The same `store` reference, for chaining.
+ */
+const installPersistenceBridge = (store, adapter, opts = {}) => {
+  if (!store || !adapter || typeof adapter.getWorldConfig !== 'function') {
+    return store;
+  }
+  // Tear down a prior bridge before installing a new one. Without
+  // this, a double attach would stack subscribers and the
+  // persistenceFlush / persistenceCancel hooks would point at the
+  // older (cancelled) writer.
+  if (typeof store.persistenceCancel === 'function') {
     try {
-      const onDisk = persistence.getWorldConfig();
-      store.setState((state) => ({
-        worldConfig: sanitizeWorldConfig({ ...state.worldConfig, ...onDisk }),
-      }));
+      store.persistenceCancel();
+    } catch {
+      // Best-effort: a previous bridge's teardown failure must not
+      // prevent the new bridge from being installed.
+    }
+  }
+  const throttleMs = typeof opts.throttleMs === 'number' ? opts.throttleMs : 250;
+  const persistenceLogger = typeof opts.logger === 'function' ? opts.logger : () => {};
+
+  // Hydrate the worldConfig slice from disk so a renderer that
+  // boots before the `persist` middleware finishes still observes
+  // the on-disk seed.
+  try {
+    const onDisk = adapter.getWorldConfig();
+    store.setState((state) => ({
+      worldConfig: sanitizeWorldConfig({ ...state.worldConfig, ...onDisk }),
+    }));
+  } catch (err) {
+    persistenceLogger('[Store] persistence hydration failed', {
+      error: err && err.message ? err.message : String(err),
+    });
+  }
+
+  const throttledWrite = throttleTrailing((snapshot) => {
+    try {
+      adapter.setWorldConfig(snapshot.worldConfig);
+      if (snapshot.installState) {
+        adapter.setInstalledApps(snapshot.installState.installedApps || []);
+      }
+      if (snapshot.navigationState) {
+        adapter.setNavigationHistory(snapshot.navigationState.history || []);
+      }
     } catch (err) {
-      persistenceLogger('[Store] persistence hydration failed', {
+      persistenceLogger('[Store] persistence save failed', {
         error: err && err.message ? err.message : String(err),
       });
     }
+  }, throttleMs);
 
-    const throttledWrite = throttleTrailing((snapshot) => {
-      try {
-        persistence.setWorldConfig(snapshot.worldConfig);
-        if (snapshot.installState) {
-          persistence.setInstalledApps(snapshot.installState.installedApps || []);
-        }
-        if (snapshot.navigationState) {
-          persistence.setNavigationHistory(snapshot.navigationState.history || []);
-        }
-      } catch (err) {
-        persistenceLogger('[Store] persistence save failed', {
-          error: err && err.message ? err.message : String(err),
-        });
-      }
-    }, throttleMs);
-
-    // Track the previous slice so we can detect actual changes. The
-    // subscribe listener fires on every mutation; without this guard
-    // we would write to disk on every FPS tick, every navigation
-    // transition, and every frame update — the very spike the
-    // throttle is meant to absorb.
-    let previous = {
-      worldConfig: null,
-      installedApps: null,
-      navigationHistory: null,
+  // Track the previous slice so we can detect actual changes. The
+  // subscribe listener fires on every mutation; without this guard
+  // we would write to disk on every FPS tick, every navigation
+  // transition, and every frame update — the very spike the
+  // throttle is meant to absorb.
+  let previous = {
+    worldConfig: null,
+    installedApps: null,
+    navigationHistory: null,
+  };
+  const unsubscribe = store.subscribe((state) => {
+    const worldConfig = state.worldConfig;
+    const installedApps = state.installState.installedApps;
+    const navigationHistory = state.navigationState.history;
+    const dirty =
+      !shallowEqualSlice(previous.worldConfig, worldConfig) ||
+      !shallowEqualArray(previous.installedApps, installedApps) ||
+      !shallowEqualArray(previous.navigationHistory, navigationHistory);
+    if (!dirty) {
+      return;
+    }
+    previous = {
+      worldConfig: { ...worldConfig },
+      installedApps: installedApps.slice(),
+      navigationHistory: navigationHistory.slice(),
     };
-    store.subscribe((state) => {
-      const worldConfig = state.worldConfig;
-      const installedApps = state.installState.installedApps;
-      const navigationHistory = state.navigationState.history;
-      const dirty =
-        !shallowEqualSlice(previous.worldConfig, worldConfig) ||
-        !shallowEqualArray(previous.installedApps, installedApps) ||
-        !shallowEqualArray(previous.navigationHistory, navigationHistory);
-      if (!dirty) {
-        return;
-      }
-      previous = {
-        worldConfig: { ...worldConfig },
-        installedApps: installedApps.slice(),
-        navigationHistory: navigationHistory.slice(),
-      };
-      throttledWrite({
-        worldConfig,
-        installState: { installedApps },
-        navigationState: { history: navigationHistory },
-      });
+    throttledWrite({
+      worldConfig,
+      installState: { installedApps },
+      navigationState: { history: navigationHistory },
     });
+  });
 
-    // Expose flush/cancel so the renderer can flush pending writes
-    // before the window closes.
-    store.persistenceFlush = () => throttledWrite.flush();
-    store.persistenceCancel = () => throttledWrite.cancel();
-  }
-
+  // Expose flush/cancel so the renderer can flush pending writes
+  // before the window closes. `cancel` also tears down the store
+  // subscription so the bridge is fully reversible.
+  store.persistenceFlush = () => throttledWrite.flush();
+  store.persistenceCancel = () => {
+    throttledWrite.cancel();
+    if (typeof unsubscribe === 'function') {
+      unsubscribe();
+    }
+  };
   return store;
 };
 
@@ -1204,77 +1256,12 @@ export const attachPersistence = (store, adapter, opts = {}) => {
   if (!store || !adapter) {
     return store;
   }
-  // The implementation lives inside `createAppStore` already; we
-  // re-use it by reading the existing subscriptions. The simplest
-  // path is to add the persistence-flush hooks and rely on the
-  // install/uninstall lifecycle to keep things sane.
-  if (!store.persistenceFlush) {
-    const throttleMs = typeof opts.throttleMs === 'number' ? opts.throttleMs : 250;
-    const persistenceLogger = typeof opts.logger === 'function' ? opts.logger : () => {};
-    // Hydrate the worldConfig slice from disk so a renderer that
-    // boots before the `persist` middleware finishes still observes
-    // the on-disk seed.
-    try {
-      const onDisk = adapter.getWorldConfig();
-      store.setState((state) => ({
-        worldConfig: sanitizeWorldConfig({ ...state.worldConfig, ...onDisk }),
-      }));
-    } catch (err) {
-      persistenceLogger('[Store] persistence hydration failed', {
-        error: err && err.message ? err.message : String(err),
-      });
-    }
-    const throttledWrite = throttleTrailing((snapshot) => {
-      try {
-        adapter.setWorldConfig(snapshot.worldConfig);
-        if (snapshot.installState) {
-          adapter.setInstalledApps(snapshot.installState.installedApps || []);
-        }
-        if (snapshot.navigationState) {
-          adapter.setNavigationHistory(snapshot.navigationState.history || []);
-        }
-      } catch (err) {
-        persistenceLogger('[Store] persistence save failed', {
-          error: err && err.message ? err.message : String(err),
-        });
-      }
-    }, throttleMs);
-    let previous = {
-      worldConfig: null,
-      installedApps: null,
-      navigationHistory: null,
-    };
-    const unsubscribe = store.subscribe((state) => {
-      const worldConfig = state.worldConfig;
-      const installedApps = state.installState.installedApps;
-      const navigationHistory = state.navigationState.history;
-      const dirty =
-        !shallowEqualSlice(previous.worldConfig, worldConfig) ||
-        !shallowEqualArray(previous.installedApps, installedApps) ||
-        !shallowEqualArray(previous.navigationHistory, navigationHistory);
-      if (!dirty) {
-        return;
-      }
-      previous = {
-        worldConfig: { ...worldConfig },
-        installedApps: installedApps.slice(),
-        navigationHistory: navigationHistory.slice(),
-      };
-      throttledWrite({
-        worldConfig,
-        installState: { installedApps },
-        navigationState: { history: navigationHistory },
-      });
-    });
-    store.persistenceFlush = () => throttledWrite.flush();
-    store.persistenceCancel = () => {
-      throttledWrite.cancel();
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-    };
-  }
-  return store;
+  // Delegate to the shared bridge. The bridge tears down a prior
+  // bridge (if any) before installing the new one, so calling
+  // `attachPersistence` a second time on the same store replaces
+  // the prior subscription and re-installs the throttle — the
+  // function is idempotent and never stacks listeners.
+  return installPersistenceBridge(store, adapter, opts);
 };
 
 // Re-export the factory + helpers so callers (renderer.js, future stories)

@@ -56,6 +56,7 @@
 import Store from 'electron-store';
 
 import { DEFAULT_CATEGORIES } from './store.js';
+import { pickFreshSeed } from './seed.js';
 
 /**
  * Stable storage key prefix. Used by both the wrapper and tests so a
@@ -214,7 +215,7 @@ const sanitizeNavigationHistory = (raw) => {
  * tests can pick a per-test one.
  */
 const defaultStoreFactory = (opts = {}) => {
-  const name = typeof opts.name === 'string' && opts.name ? opts.name : 'persistence';
+  const name = typeof opts.name === 'string' && opts.name ? opts.name : PERSIST_NAMESPACE;
   // electron-store v11 is ESM-only and accepts a `defaults` object.
   // We pass our schema via `defaults` so the first read returns a
   // well-formed object even if the file does not yet exist on disk.
@@ -291,6 +292,14 @@ export const createMemoryStore = (initial = {}) => {
 export const createPersistence = (opts = {}) => {
   const logger = typeof opts.logger === 'function' ? opts.logger : () => {};
   const now = typeof opts.now === 'function' ? opts.now : () => Date.now();
+  // Resolve the on-disk filename *once* at the entry point so every
+  // code path (default factory, custom storeFactory, the renderer's
+  // call site) sees the same namespaced value. Without this, a caller
+  // that omits `name` would see `undefined` flow through to a
+  // `storeFactory` it injected — and the on-disk file would land
+  // under electron-store's default name (`config`), which is the
+  // collision we are trying to prevent.
+  const effectiveName = typeof opts.name === 'string' && opts.name ? opts.name : PERSIST_NAMESPACE;
 
   let store;
   if (opts.store) {
@@ -302,9 +311,9 @@ export const createPersistence = (opts = {}) => {
       [KEYS.NAVIGATION_HISTORY]: [...DEFAULT_NAVIGATION_HISTORY],
     });
   } else if (typeof opts.storeFactory === 'function') {
-    store = opts.storeFactory({ name: opts.name });
+    store = opts.storeFactory({ name: effectiveName });
   } else {
-    store = defaultStoreFactory({ name: opts.name });
+    store = defaultStoreFactory({ name: effectiveName });
   }
 
   /**
@@ -421,7 +430,7 @@ export const createPersistence = (opts = {}) => {
       const seed =
         typeof opts.seed === 'number' && Number.isFinite(opts.seed) && opts.seed >= 0
           ? Math.floor(opts.seed)
-          : pickFreshSeed(current.seed, now);
+          : pickFreshSeed(current.seed, now());
       const next = {
         seed,
         lastRegeneratedAt: now(),
@@ -443,25 +452,6 @@ export const createPersistence = (opts = {}) => {
       safeSet(KEYS.NAVIGATION_HISTORY, [...DEFAULT_NAVIGATION_HISTORY]);
     },
   };
-};
-
-/**
- * Pick a new seed that differs from the previous one. We use a
- * counter that advances on every call so two back-to-back regenerates
- * in the same millisecond still produce distinct seeds. The
- * counter is held in module scope: tests can pass a `seed` override
- * directly to `regenerateWorld({ seed })` to side-step the counter.
- */
-let REGEN_COUNTER = 0;
-const pickFreshSeed = (previousSeed, now) => {
-  REGEN_COUNTER += 1;
-  const ts = typeof now === 'function' ? now() : Date.now();
-  // Combine the timestamp with the counter so two clicks within the
-  // same millisecond still differ. The result is a 32-bit unsigned
-  // integer — large enough for a visible layout change but small
-  // enough to stay well below Number.MAX_SAFE_INTEGER.
-  const candidate = ((ts & 0xffff) << 16) | (REGEN_COUNTER & 0xffff);
-  return candidate === previousSeed ? candidate + 1 : candidate;
 };
 
 export default createPersistence;

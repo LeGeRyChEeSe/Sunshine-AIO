@@ -318,4 +318,34 @@ describe('state/persistence.js (Story 2-4)', () => {
       expect(shim.get('navigationHistory', 'gone')).toBe('gone');
     });
   });
+
+  describe('default store factory', () => {
+    it('forwards the PERSIST_NAMESPACE as the default store name', () => {
+      // Inject a factory spy through the public `storeFactory`
+      // option. The wrapper passes the effective name to the
+      // factory as the first argument. When the caller does not
+      // pass an explicit `name`, the wrapper defaults it to
+      // `PERSIST_NAMESPACE` — which is what the production renderer
+      // relies on for a stable on-disk filename.
+      const factorySpy = vi.fn(() => createMemoryStore());
+      createPersistence({
+        storeFactory: factorySpy,
+        logger: () => {},
+      });
+      expect(factorySpy).toHaveBeenCalledTimes(1);
+      const opts = factorySpy.mock.calls[0][0] || {};
+      expect(opts.name).toBe(PERSIST_NAMESPACE);
+    });
+
+    it('honors an explicit name override for tests', () => {
+      const factorySpy = vi.fn(() => createMemoryStore());
+      createPersistence({
+        storeFactory: factorySpy,
+        name: 'test-custom-name',
+        logger: () => {},
+      });
+      const opts = factorySpy.mock.calls[0][0] || {};
+      expect(opts.name).toBe('test-custom-name');
+    });
+  });
 });
