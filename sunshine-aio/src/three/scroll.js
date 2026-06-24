@@ -29,13 +29,20 @@
  *
  * The controller is intentionally framework-agnostic: it does not
  * import React, Zustand, or the scene controller. Consumers wire it
- * up in `setup.js` and feed it the camera + canvas. The module
- * exports a brand symbol so a future scene-controller refactor can
- * reject faked controllers on the same defense-in-depth principle as
- * `PLANET_FACTORY_BRAND`.
+ * up in `setup.js` and feed it the camera + canvas. The brand symbol
+ * lives in `setup.js` (a single source of truth) and is re-exported
+ * from this module for tests so a future scene-controller refactor
+ * can reject faked controllers on the same defense-in-depth principle
+ * as `PLANET_FACTORY_BRAND`. Importing the brand — instead of
+ * creating a fresh `Symbol('ScrollController')` here — guarantees
+ * the brand stamped by this module is bit-identical to the one
+ * `setScroll` checks, since `Symbol()` returns a unique value at every
+ * call site.
  */
 
-export const SCROLL_CONTROLLER_BRAND = Symbol('ScrollController');
+import { SCROLL_CONTROLLER_BRAND } from './setup.js';
+
+export { SCROLL_CONTROLLER_BRAND };
 
 const DEFAULT_DAMPING = 8; // higher = snappier, lower = floatier
 const DEFAULT_WHEEL_SCALE = 0.0015; // wheel delta -> world units
@@ -140,8 +147,18 @@ export const createHorizontalScrollController = (opts = {}) => {
   // Internal state. `offset` is the visual (current) camera X; `target`
   // is what the user is steering toward; `velocity` is the residual
   // momentum that drives the camera between wheel/drag events.
+  //
+  // In `wrap` mode `target` is also the camera-space X (it lives inside
+  // `[0, maxOffset)`). The unbounded counterpart is `visualOffset`: a
+  // free-running accumulator that grows without bound as the user
+  // scrolls. The camera X is `visualOffset mod maxOffset`, so a wheel
+  // flick can carry the camera across the seam between the last and
+  // first planet without the modulo snapping the next integrateVelocity
+  // tick back to 0. `visualOffset` is only ever read in wrap mode; in
+  // clamp mode it stays at 0 and `target` carries the full state.
   let offset = 0;
   let target = 0;
+  let visualOffset = 0;
   let velocity = 0;
   let enabled = opts.enabled !== false;
   let attached = false;
@@ -192,6 +209,15 @@ export const createHorizontalScrollController = (opts = {}) => {
         // surface without masking real bugs.
       }
     }
+    // Install window-level fallbacks while the drag is in progress so
+    // a pointer-up outside the canvas (or an alt-tab mid-drag) still
+    // ends the drag. These are removed in `endDrag` to avoid paying
+    // the cost on idle frames.
+    const scope = getGlobalScope();
+    if (scope && typeof scope.addEventListener === 'function') {
+      scope.addEventListener('pointerup', windowPointerUpListener);
+      scope.addEventListener('blur', windowBlurListener);
+    }
   };
 
   const pointerMoveListener = (event) => {
@@ -227,6 +253,12 @@ export const createHorizontalScrollController = (opts = {}) => {
       }
     }
     dragPointerId = null;
+    // Drop the window-level fallbacks now that the drag is done.
+    const scope = getGlobalScope();
+    if (scope && typeof scope.removeEventListener === 'function') {
+      scope.removeEventListener('pointerup', windowPointerUpListener);
+      scope.removeEventListener('blur', windowBlurListener);
+    }
     // The event argument is intentionally unused; the listener only
     // cares about the side-effect of releasing pointer capture.
     void event;
@@ -234,6 +266,25 @@ export const createHorizontalScrollController = (opts = {}) => {
 
   const pointerUpListener = (event) => endDrag(event);
   const pointerCancelListener = (event) => endDrag(event);
+  // `pointerleave` is registered as a defence against a drag that
+  // exits the canvas before the user releases — without this the
+  // pointer-capture path is the only safety net, and pointer capture
+  // can fail silently (the `setPointerCapture` try/catch swallows the
+  // error in some stubs). Falling back to a leave-driven endDrag keeps
+  // `dragging` from getting stuck on `true` indefinitely.
+  const pointerLeaveListener = (event) => endDrag(event);
+
+  // Window-level fallbacks. We bind a global pointerup + blur listener
+  // only while a drag is active so we don't pay the cost on idle
+  // frames. The blur listener catches the case where the user alt-tabs
+  // away mid-drag — the canvas will never see a pointerup.
+  const windowPointerUpListener = (event) => endDrag(event);
+  const windowBlurListener = () => endDrag(null);
+  const getGlobalScope = () => {
+    if (typeof window !== 'undefined') return window;
+    if (typeof globalThis !== 'undefined') return globalThis;
+    return null;
+  };
 
   /**
    * Apply an instantaneous velocity change. The wheel emits discrete
@@ -254,9 +305,18 @@ export const createHorizontalScrollController = (opts = {}) => {
 
   /**
    * Apply the boundary policy to a requested target. In `clamp` mode
-   * the target is pinned to [0, maxOffset]; in `wrap` mode it cycles
-   * modulo the universe length so the camera seamlessly slides from
-   * the last planet back to the first.
+   * the target is pinned to [0, maxOffset]; in `wrap` mode the target
+   * is folded into [0, maxOffset) so it always points at a valid slot.
+   * The wrap math uses `((value % length) + length) % length` so a
+   * `value` of exactly `length` (or any positive multiple) lands at 0
+   * rather than producing a `NaN` or out-of-range slot, and so negative
+   * `value`s map back into the valid range symmetrically.
+   *
+   * Note: the per-frame visual continuity in wrap mode is provided by
+   * `integrateVelocity`, which advances `visualOffset` freely and only
+   * folds it into `target` for the camera transform. `applyBoundary` is
+   * the single boundary primitive used by `jumpTo` and `setPlanetCount`
+   * to clamp the camera-space slot.
    */
   const applyBoundary = (value) => {
     if (maxOffset <= 0) {
@@ -284,13 +344,38 @@ export const createHorizontalScrollController = (opts = {}) => {
    * wheel/drag momentum). Called every frame from the render loop.
    * Friction decays the velocity exponentially so the camera glides
    * to a stop instead of halting abruptly.
+   *
+   * In `wrap` mode the accumulator (`visualOffset`) is allowed to grow
+   * without bound across the seam; the camera-space slot (`target`) is
+   * computed each tick as `visualOffset mod length`. This is the fix
+   * for the seam-snap regression: under the prior implementation the
+   * camera would slide linearly toward `length`, then on the next tick
+   * the modulo would fold the target back to 0, producing a single
+   * frame of discontinuity. With a free-running accumulator, the camera
+   * crosses the seam linearly and the slot naturally wraps.
+   *
+   * In `clamp` mode `visualOffset` stays at 0 and `target` carries the
+   * full state — the existing clamp math on `target` is unchanged.
    */
   const integrateVelocity = (deltaSeconds) => {
     if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
       return;
     }
-    target += velocity * deltaSeconds;
-    target = applyBoundary(target);
+    if (boundaryMode === 'wrap' && maxOffset > 0) {
+      visualOffset += velocity * deltaSeconds;
+      // Fold only for the camera-space slot. The accumulator itself
+      // never gets folded back, so the spring never sees a wrap-step
+      // discontinuity on its own state.
+      const length = maxOffset;
+      let wrapped = visualOffset % length;
+      if (wrapped < 0) {
+        wrapped += length;
+      }
+      target = wrapped;
+    } else {
+      target += velocity * deltaSeconds;
+      target = applyBoundary(target);
+    }
     // Exponential decay: a frame of length `dt` multiplies velocity
     // by `exp(-friction * dt)`. The closed form is equivalent to
     // `v *= 1 - friction*dt` for small dt, but `exp` is frame-rate
@@ -309,6 +394,14 @@ export const createHorizontalScrollController = (opts = {}) => {
    * up; a high value makes the motion feel snappy, a low value makes
    * the motion feel floaty. The camera's Y and Z are left alone so
    * a future vertical-pan or zoom-in story can layer on top.
+   *
+   * In `wrap` mode the spring advances a free-running `offset` (in
+   * the same coordinate space as `visualOffset`) and only folds into
+   * the camera-space slot at the very end. Tracking the camera in
+   * the same unbounded space as the target keeps the spring linear
+   * across the wrap seam: the lerp `(target - offset) * k` would
+   * otherwise see a discontinuity (target near `length`, offset near
+   * 0) and skip an entire universe of motion in a single frame.
    */
   const applyCameraTransform = (deltaSeconds) => {
     if (!camera || !camera.position) {
@@ -320,11 +413,31 @@ export const createHorizontalScrollController = (opts = {}) => {
     // FPS. The plain `offset += (target - offset) * factor` form is
     // dependent on the renderer's frame interval.
     const k = 1 - Math.exp(-damping * dt);
-    offset += (target - offset) * k;
-    if (Math.abs(target - offset) < 1e-4 && Math.abs(velocity) < 1e-3) {
-      offset = target;
+    if (boundaryMode === 'wrap' && maxOffset > 0) {
+      // Spring against the unbounded coordinate. Choose the offset
+      // closest to `visualOffset` so the lerp is the short way around
+      // the wrap (rather than spinning the camera the long way).
+      const length = maxOffset;
+      let delta = visualOffset - offset;
+      delta -= Math.round(delta / length) * length;
+      offset += delta * k;
+      // Snap when the spring has fully settled so floating-point drift
+      // doesn't keep nudging the camera forever.
+      if (Math.abs(delta) < 1e-4 && Math.abs(velocity) < 1e-3) {
+        offset = visualOffset;
+      }
+      let slot = offset % length;
+      if (slot < 0) {
+        slot += length;
+      }
+      camera.position.x = slot;
+    } else {
+      offset += (target - offset) * k;
+      if (Math.abs(target - offset) < 1e-4 && Math.abs(velocity) < 1e-3) {
+        offset = target;
+      }
+      camera.position.x = offset;
     }
-    camera.position.x = offset;
   };
 
   /**
@@ -358,6 +471,7 @@ export const createHorizontalScrollController = (opts = {}) => {
     canvas.addEventListener('pointermove', pointerMoveListener);
     canvas.addEventListener('pointerup', pointerUpListener);
     canvas.addEventListener('pointercancel', pointerCancelListener);
+    canvas.addEventListener('pointerleave', pointerLeaveListener);
   };
 
   const detach = () => {
@@ -373,6 +487,14 @@ export const createHorizontalScrollController = (opts = {}) => {
     canvas.removeEventListener('pointermove', pointerMoveListener);
     canvas.removeEventListener('pointerup', pointerUpListener);
     canvas.removeEventListener('pointercancel', pointerCancelListener);
+    canvas.removeEventListener('pointerleave', pointerLeaveListener);
+    // If a drag is still active when detach is called, end it so the
+    // window-level fallback listeners installed in pointerDown are
+    // cleaned up. `endDrag` short-circuits when `dragging` is false,
+    // so calling it here is harmless in the common path.
+    if (dragging) {
+      endDrag(null);
+    }
   };
 
   const setEnabled = (next) => {
@@ -396,16 +518,23 @@ export const createHorizontalScrollController = (opts = {}) => {
    * the UI to centre it). Clamps to the boundary so a programmatic
    * jump cannot push the camera off-world. The velocity is zeroed so
    * a manual jump is never overridden by stale inertia.
+   *
+   * The argument is interpreted as the camera-space slot in both
+   * boundary modes (clamp and wrap); in wrap mode the unbounded
+   * accumulator is folded to the requested slot so subsequent
+   * inertia continues from the same visual position.
    */
   const jumpTo = (value) => {
     if (!Number.isFinite(value)) {
       return false;
     }
-    target = applyBoundary(value);
-    offset = target;
+    const slot = applyBoundary(value);
+    target = slot;
+    offset = slot;
+    visualOffset = slot;
     velocity = 0;
     if (camera && camera.position) {
-      camera.position.x = offset;
+      camera.position.x = slot;
     }
     return true;
   };
@@ -415,6 +544,11 @@ export const createHorizontalScrollController = (opts = {}) => {
    * reloaded from disk and the universe grew or shrank. The current
    * offset is re-clamped onto the new boundary so the camera never
    * sits beyond the last planet after a regeneration.
+   *
+   * In wrap mode `visualOffset` (the unbounded accumulator driving
+   * the spring across the seam) is folded onto the new length so the
+   * next frame picks up the same visual slot without re-crossing the
+   * seam unexpectedly.
    */
   const setPlanetCount = (count) => {
     const safe = Math.max(0, Math.floor(sanitizeScalar(count, 0)));
@@ -427,6 +561,7 @@ export const createHorizontalScrollController = (opts = {}) => {
     if (newLength <= 0) {
       target = 0;
       offset = 0;
+      visualOffset = 0;
     } else if (boundaryMode === 'wrap') {
       let wrapped = target % newLength;
       if (wrapped < 0) {
@@ -434,6 +569,14 @@ export const createHorizontalScrollController = (opts = {}) => {
       }
       target = wrapped;
       offset = wrapped;
+      // Fold the unbounded accumulator to match. Keeping it in sync
+      // here means a wheel flick right after the swap doesn't see a
+      // surprise jump as the spring catches up from a stale offset.
+      let wrappedVisual = visualOffset % newLength;
+      if (wrappedVisual < 0) {
+        wrappedVisual += newLength;
+      }
+      visualOffset = wrappedVisual;
     } else {
       if (target > newLength) {
         target = newLength;
@@ -447,6 +590,7 @@ export const createHorizontalScrollController = (opts = {}) => {
       if (offset < 0) {
         offset = 0;
       }
+      visualOffset = 0;
     }
     velocity = 0;
     if (camera && camera.position) {
@@ -469,6 +613,7 @@ export const createHorizontalScrollController = (opts = {}) => {
     velocity = 0;
     target = 0;
     offset = 0;
+    visualOffset = 0;
     logger('[Scroll] Disposed');
   };
 

@@ -44,6 +44,18 @@
  *     from disk)
  *   - exposes a "Regenerate World" affordance in the on-screen HUD
  *     that asks for confirmation before rolling a new seed
+ *
+ * Story 3-1 wires the horizontal scroll controller into the scene:
+ *
+ *   - imports `createHorizontalScrollController` from src/three/scroll.js
+ *   - constructs it after `createScene` using the same camera and canvas
+ *     so wheel events on the canvas drive the camera's X position
+ *   - attaches it to the scene controller via `setScroll(...)` so its
+ *     per-frame `update(delta)` is driven by the same RAF loop as the
+ *     sun and planets, and its DOM listeners are released on `dispose`
+ *   - keeps the controller's planet count in lockstep with the
+ *     category slice so a regeneration that grows/shrinks the
+ *     universe re-clamps the camera to the new edge
  */
 
 import './styles.css';
@@ -51,6 +63,7 @@ import * as THREE from 'three';
 import { createScene } from './three/setup.js';
 import { createSun, CORE_TOOLS } from './three/sun.js';
 import { createPlanetsForCategories } from './three/planetFactory.js';
+import { createHorizontalScrollController } from './three/scroll.js';
 import { useAppStore, APP_VIEW, attachPersistence } from './state/store.js';
 import { createPersistence, PERSIST_NAMESPACE } from './state/persistence.js';
 
@@ -260,6 +273,24 @@ try {
     logger,
   });
 
+  // Story 3-1: build the horizontal scroll controller that owns the
+  // camera's X-axis motion. The controller needs the same `camera`
+  // and `canvas` the scene uses so wheel/pointer events on the canvas
+  // translate into camera movement. We attach the initial planet
+  // count from the store's categories slice; `rebuildPlanets` below
+  // pushes the live count every time the factory is rebuilt so the
+  // controller re-clamps to the new boundary instead of overflowing.
+  const initialPlanetCount = Array.isArray(store?.getState?.().categories)
+    ? store.getState().categories.length
+    : 0;
+  const scroll = createHorizontalScrollController({
+    camera: sceneController.camera,
+    canvas,
+    planetCount: initialPlanetCount,
+    logger,
+  });
+  sceneController.setScroll(scroll);
+
   // Story 2-2: build the sun, attach it to the scene, and hand it to
   // the controller so the animation loop drives its `update(...)`.
   // The sun is owned by the controller: dispose() will release its
@@ -329,16 +360,24 @@ try {
       planetsFactory.dispose();
       planetsFactory = null;
     }
+    const categories = store.getState().categories;
     planetsFactory = createPlanetsForCategories({
       THREE,
-      categories: store.getState().categories,
+      categories,
       seed: nextSeed,
       logger,
     });
     sceneController.setPlanets(planetsFactory);
+    // Story 3-1: push the live planet count into the scroll controller
+    // so the wrap/clamp math stays consistent with the new universe.
+    // Without this, a regeneration that grows or shrinks the category
+    // list could leave the camera seated beyond the last planet.
+    if (scroll && typeof scroll.setPlanetCount === 'function') {
+      scroll.setPlanetCount(Array.isArray(categories) ? categories.length : 0);
+    }
     // Re-push the installed flags so the freshly-built factory
     // reflects the persisted install state on day one.
-    for (const entry of store.getState().categories) {
+    for (const entry of categories) {
       if (!entry || typeof entry.id !== 'string') {
         continue;
       }
@@ -382,6 +421,11 @@ try {
   // a category's installed flag is reflected on the planet within a
   // single tick. The selector-driven subscribe avoids waking the
   // listener for unrelated store mutations.
+  //
+  // Story 3-1: when the slice length changes, we also push the new
+  // planet count into the scroll controller so its boundary stays in
+  // sync. A pure `installed` flag flip is ignored — the controller's
+  // planet count is a structural property, not a per-planet state.
   const pushCategories = (categories) => {
     if (!Array.isArray(categories)) {
       return;
@@ -391,6 +435,12 @@ try {
         continue;
       }
       sceneController.setPlanetInstalled(entry.id, Boolean(entry.installed));
+    }
+    if (scroll && typeof scroll.setPlanetCount === 'function') {
+      const current = typeof scroll.getPlanetCount === 'function' ? scroll.getPlanetCount() : -1;
+      if (current !== categories.length) {
+        scroll.setPlanetCount(categories.length);
+      }
     }
   };
   pushCategories(store.getState().categories);
