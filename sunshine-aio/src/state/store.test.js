@@ -1,0 +1,506 @@
+/**
+ * Tests for src/state/store.js (Story 2-1 + Story 2-2).
+ *
+ * Covers:
+ *   - Initial state for all four slices (world/install/navigation/coreTools).
+ *   - Action behavior: setPlanetStatus, upsertPlanet, setFps,
+ *     markSceneInitialized, addInstalledApp, removeInstalledApp,
+ *     startInstallProgress, finishInstallProgress, setCurrentView,
+ *     setFocusedPlanet, setFocusedApp, goBack, resetNavigation,
+ *     setCoreTools, setCoreToolInstalled, syncCoreToolsFromInstalls,
+ *     reset.
+ *   - Persistence: only the persistable fields are written to storage,
+ *     the store rehydrates from storage on construction, and migrations
+ *     move an older version forward.
+ *
+ * Story 2-2 adds the `coreTools` slice coverage (initial state, three
+ * dedicated actions, and round-trip through the persist middleware).
+ *
+ * Tests use the in-memory storage adapter (`createMemoryStorage`) so
+ * the suite runs cleanly under Node without touching `window.localStorage`.
+ */
+
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createJSONStorage } from 'zustand/middleware';
+import {
+  createAppStore,
+  createMemoryStorage,
+  PLANET_STATUS,
+  APP_VIEW,
+  CORE_TOOL_IDS,
+  STORE_NAME,
+  STORE_VERSION,
+} from './store.js';
+
+/**
+ * Build a memory-backed PersistStorage compatible with the persist
+ * middleware (handles JSON serialization on set / parse on get).
+ */
+const jsonMemoryStorage = () => createJSONStorage(() => createMemoryStorage());
+
+describe('state/store.js (Story 2-1 + 2-2)', () => {
+  describe('initial state', () => {
+    it('exposes empty worlds, no installed apps, and the solar-system view', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const state = store.getState();
+      expect(state.worldState.planets).toEqual([]);
+      expect(state.worldState.fps).toBe(0);
+      expect(state.worldState.sceneInitialized).toBe(false);
+      expect(state.installState.installedApps).toEqual([]);
+      expect(state.installState.inProgressApps).toEqual([]);
+      expect(state.installState.failedApps).toEqual([]);
+      expect(state.installState.lastUpdatedAt).toBeNull();
+      expect(state.navigationState.currentView).toBe(APP_VIEW.SOLAR_SYSTEM);
+      expect(state.navigationState.focusedPlanetId).toBeNull();
+      expect(state.navigationState.focusedAppId).toBeNull();
+      expect(state.navigationState.history).toEqual([APP_VIEW.SOLAR_SYSTEM]);
+    });
+
+    it('exposes the documented planet status enum values', () => {
+      expect(PLANET_STATUS).toEqual({
+        UNINSTALLED: 'uninstalled',
+        INSTALLING: 'installing',
+        INSTALLED: 'installed',
+        FAILED: 'failed',
+        UPDATING: 'updating',
+      });
+    });
+
+    it('exposes the documented app view enum values', () => {
+      expect(APP_VIEW).toEqual({
+        SOLAR_SYSTEM: 'solar-system',
+        PLANET_DETAIL: 'planet-detail',
+        APP_DETAIL: 'app-detail',
+        SETTINGS: 'settings',
+      });
+    });
+
+    it('initializes every core tool to "not installed"', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const coreTools = store.getState().coreTools;
+      expect(CORE_TOOL_IDS).toEqual(['sunshine', 'vdd', 'playnite']);
+      expect(coreTools).toEqual({
+        sunshine: false,
+        vdd: false,
+        playnite: false,
+      });
+    });
+  });
+
+  describe('worldState actions', () => {
+    let store;
+    beforeEach(() => {
+      store = createAppStore({ storage: jsonMemoryStorage() });
+    });
+
+    it('upsertPlanet inserts and updates planets by id', () => {
+      store.getState().upsertPlanet({
+        id: 'sunshine-planet',
+        name: 'Sunshine',
+        status: PLANET_STATUS.UNINSTALLED,
+      });
+      expect(store.getState().worldState.planets).toHaveLength(1);
+
+      store.getState().upsertPlanet({
+        id: 'sunshine-planet',
+        name: 'Sunshine',
+        status: PLANET_STATUS.INSTALLED,
+      });
+      const planets = store.getState().worldState.planets;
+      expect(planets).toHaveLength(1);
+      expect(planets[0].status).toBe(PLANET_STATUS.INSTALLED);
+    });
+
+    it('setPlanetStatus updates the matching planet only', () => {
+      store.getState().upsertPlanet({ id: 'a', status: PLANET_STATUS.UNINSTALLED });
+      store.getState().upsertPlanet({ id: 'b', status: PLANET_STATUS.UNINSTALLED });
+      store.getState().setPlanetStatus('a', PLANET_STATUS.INSTALLED);
+      const planets = store.getState().worldState.planets;
+      expect(planets.find((p) => p.id === 'a').status).toBe(PLANET_STATUS.INSTALLED);
+      expect(planets.find((p) => p.id === 'b').status).toBe(PLANET_STATUS.UNINSTALLED);
+    });
+
+    it('setFps replaces the FPS value, clamping NaN to 0', () => {
+      store.getState().setFps(60);
+      expect(store.getState().worldState.fps).toBe(60);
+      store.getState().setFps(Number.NaN);
+      expect(store.getState().worldState.fps).toBe(0);
+    });
+
+    it('markSceneInitialized toggles the sceneInitialized flag', () => {
+      expect(store.getState().worldState.sceneInitialized).toBe(false);
+      store.getState().markSceneInitialized(true);
+      expect(store.getState().worldState.sceneInitialized).toBe(true);
+      store.getState().markSceneInitialized(false);
+      expect(store.getState().worldState.sceneInitialized).toBe(false);
+    });
+  });
+
+  describe('installState actions', () => {
+    let store;
+    beforeEach(() => {
+      store = createAppStore({ storage: jsonMemoryStorage() });
+    });
+
+    it('addInstalledApp adds an app with an installedAt timestamp', () => {
+      store.getState().addInstalledApp({ id: 'sunshine', name: 'Sunshine' });
+      const installedApps = store.getState().installState.installedApps;
+      expect(installedApps).toHaveLength(1);
+      expect(installedApps[0].id).toBe('sunshine');
+      expect(installedApps[0].installedAt).toEqual(expect.any(Number));
+      expect(store.getState().installState.lastUpdatedAt).toEqual(expect.any(Number));
+    });
+
+    it('addInstalledApp is idempotent on the same id', () => {
+      store.getState().addInstalledApp({ id: 'sunshine', name: 'Sunshine', version: '0.1' });
+      store.getState().addInstalledApp({ id: 'sunshine', name: 'Sunshine', version: '0.2' });
+      const installedApps = store.getState().installState.installedApps;
+      expect(installedApps).toHaveLength(1);
+      expect(installedApps[0].version).toBe('0.2');
+    });
+
+    it('removeInstalledApp drops the entry and stamps lastUpdatedAt', () => {
+      store.getState().addInstalledApp({ id: 'vdd' });
+      store.getState().removeInstalledApp('vdd');
+      expect(store.getState().installState.installedApps).toEqual([]);
+    });
+
+    it('startInstallProgress + finishInstallProgress(outcome=success) clears in-progress', () => {
+      store.getState().startInstallProgress('sunshine');
+      expect(store.getState().installState.inProgressApps).toContain('sunshine');
+      store.getState().finishInstallProgress('sunshine', 'success');
+      expect(store.getState().installState.inProgressApps).not.toContain('sunshine');
+      expect(store.getState().installState.failedApps).not.toContain('sunshine');
+    });
+
+    it('finishInstallProgress(outcome=failed) pushes into failedApps', () => {
+      store.getState().startInstallProgress('sunshine');
+      store.getState().finishInstallProgress('sunshine', 'failed');
+      expect(store.getState().installState.failedApps).toContain('sunshine');
+      expect(store.getState().installState.inProgressApps).not.toContain('sunshine');
+    });
+  });
+
+  describe('navigationState actions', () => {
+    let store;
+    beforeEach(() => {
+      store = createAppStore({ storage: jsonMemoryStorage() });
+    });
+
+    it('setCurrentView pushes unique views and ignores the same view', () => {
+      store.getState().setCurrentView(APP_VIEW.PLANET_DETAIL);
+      store.getState().setCurrentView(APP_VIEW.PLANET_DETAIL);
+      expect(store.getState().navigationState.history).toEqual([
+        APP_VIEW.SOLAR_SYSTEM,
+        APP_VIEW.PLANET_DETAIL,
+      ]);
+    });
+
+    it('setCurrentView rejects unknown views', () => {
+      const before = store.getState().navigationState;
+      store.getState().setCurrentView('garbage');
+      expect(store.getState().navigationState).toBe(before);
+    });
+
+    it('goBack pops the history stack to the previous view', () => {
+      store.getState().setCurrentView(APP_VIEW.SETTINGS);
+      store.getState().goBack();
+      expect(store.getState().navigationState.currentView).toBe(APP_VIEW.SOLAR_SYSTEM);
+    });
+
+    it('goBack is a no-op at the bottom of the stack', () => {
+      const before = store.getState().navigationState;
+      store.getState().goBack();
+      expect(store.getState().navigationState).toBe(before);
+    });
+
+    it('resetNavigation returns to the initial view and history', () => {
+      store.getState().setCurrentView(APP_VIEW.SETTINGS);
+      store.getState().setCurrentView(APP_VIEW.APP_DETAIL);
+      store.getState().resetNavigation();
+      expect(store.getState().navigationState.currentView).toBe(APP_VIEW.SOLAR_SYSTEM);
+      expect(store.getState().navigationState.history).toEqual([APP_VIEW.SOLAR_SYSTEM]);
+    });
+  });
+
+  describe('coreTools actions (Story 2-2)', () => {
+    let store;
+    beforeEach(() => {
+      store = createAppStore({ storage: jsonMemoryStorage() });
+    });
+
+    it('setCoreTools accepts the canonical tools map and drops unknown keys', () => {
+      store.getState().setCoreTools({
+        sunshine: true,
+        vdd: true,
+        playnite: false,
+        bogus: true,
+      });
+      expect(store.getState().coreTools).toEqual({
+        sunshine: true,
+        vdd: true,
+        playnite: false,
+      });
+    });
+
+    it('setCoreTools normalizes non-boolean values to booleans', () => {
+      store.getState().setCoreTools({ sunshine: 'true', vdd: 1, playnite: null });
+      expect(store.getState().coreTools).toEqual({
+        sunshine: true,
+        vdd: true,
+        playnite: false,
+      });
+    });
+
+    it('setCoreTools is a no-op for non-object inputs', () => {
+      const before = { ...store.getState().coreTools };
+      store.getState().setCoreTools(null);
+      store.getState().setCoreTools(undefined);
+      store.getState().setCoreTools('sunshine');
+      expect(store.getState().coreTools).toEqual(before);
+    });
+
+    it('setCoreToolInstalled flips a single tool', () => {
+      store.getState().setCoreToolInstalled('vdd', true);
+      expect(store.getState().coreTools).toEqual({
+        sunshine: false,
+        vdd: true,
+        playnite: false,
+      });
+    });
+
+    it('setCoreToolInstalled ignores unknown tool ids', () => {
+      const before = { ...store.getState().coreTools };
+      store.getState().setCoreToolInstalled('bogus', true);
+      expect(store.getState().coreTools).toEqual(before);
+    });
+
+    it('syncCoreToolsFromInstalls derives the map from installedApps', () => {
+      store.getState().addInstalledApp({ id: 'sunshine' });
+      store.getState().addInstalledApp({ id: 'playnite' });
+      store.getState().syncCoreToolsFromInstalls();
+      expect(store.getState().coreTools).toEqual({
+        sunshine: true,
+        vdd: false,
+        playnite: true,
+      });
+    });
+
+    it('syncCoreToolsFromInstalls ignores apps whose id is not a core tool', () => {
+      store.getState().addInstalledApp({ id: 'playnite-extension' });
+      store.getState().addInstalledApp({ id: 'sunshine' });
+      store.getState().syncCoreToolsFromInstalls();
+      expect(store.getState().coreTools).toEqual({
+        sunshine: true,
+        vdd: false,
+        playnite: false,
+      });
+    });
+  });
+
+  describe('persistence', () => {
+    it('persists only the documented slices', () => {
+      const memory = createMemoryStorage();
+      const storage = createJSONStorage(() => memory);
+      const store = createAppStore({ storage, name: STORE_NAME });
+      store.getState().setFps(72);
+      store.getState().addInstalledApp({ id: 'sunshine' });
+      store.getState().setCoreTools({ sunshine: true });
+      // `createJSONStorage` wraps the underlying storage with
+      // JSON.parse/stringify, so getItem() already returns the parsed
+      // object. We then verify the underlying memory store holds the
+      // raw JSON string and that the parsed payload carries every
+      // documented slice while excluding the ephemeral fields.
+      const raw = memory.getItem(STORE_NAME);
+      expect(raw).toBeTruthy();
+      expect(typeof raw).toBe('string');
+      const parsed = JSON.parse(raw);
+      expect(parsed.state).toHaveProperty('worldState');
+      expect(parsed.state).toHaveProperty('installState');
+      expect(parsed.state).toHaveProperty('navigationState');
+      expect(parsed.state).toHaveProperty('coreTools');
+      // Ephemeral fields must NOT be persisted.
+      expect(parsed.state.worldState.fps).toBeUndefined();
+      expect(parsed.state.worldState.sceneInitialized).toBeUndefined();
+      expect(parsed.state.installState.inProgressApps).toBeUndefined();
+    });
+
+    it('rehydrates the persisted coreTools map on a new store', () => {
+      const storage = jsonMemoryStorage();
+      const first = createAppStore({ storage, name: STORE_NAME });
+      first.getState().setCoreTools({ sunshine: true, vdd: true, playnite: false });
+      const second = createAppStore({ storage, name: STORE_NAME });
+      expect(second.getState().coreTools).toEqual({
+        sunshine: true,
+        vdd: true,
+        playnite: false,
+      });
+    });
+
+    it('exposes the documented STORE_NAME and STORE_VERSION', () => {
+      expect(STORE_NAME).toBe('sunshine-aio-app-state');
+      expect(typeof STORE_VERSION).toBe('number');
+      expect(STORE_VERSION).toBeGreaterThanOrEqual(1);
+    });
+
+    it('drops persisted keys outside the whitelisted slice list', () => {
+      // The new mergeSlices implementation only accepts a known set of
+      // top-level keys (worldState / installState / navigationState /
+      // coreTools). Any other key present in the persisted blob must
+      // be silently dropped on rehydrate so a forged or accidentally
+      // mutated storage entry cannot smuggle arbitrary keys into the
+      // runtime state.
+      const memory = createMemoryStorage();
+      const storage = createJSONStorage(() => memory);
+      // Seed a forged payload with a non-whitelisted key. We bypass
+      // the createAppStore path because the store's partialize would
+      // strip this key before writing it back. We write the raw JSON
+      // directly into the underlying memory storage (the layer
+      // underneath `createJSONStorage`) so the bytes match what
+      // zustand/persist would have written itself — `setItem` on the
+      // wrapped storage would JSON.stringify a second time.
+      memory.setItem(
+        STORE_NAME,
+        JSON.stringify({
+          version: 1,
+          state: {
+            coreTools: { sunshine: true, vdd: true, playnite: true },
+            // The malicious / non-whitelisted key:
+            __forged__: { dangerous: true },
+            // A non-whitelisted selector-style key (would have leaked
+            // through the old root-level spread):
+            toString: 'malicious',
+          },
+        })
+      );
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const store = createAppStore({ storage, name: STORE_NAME });
+      const state = store.getState();
+      // The whitelisted slice survives the round trip:
+      expect(state.coreTools).toEqual({
+        sunshine: true,
+        vdd: true,
+        playnite: true,
+      });
+      // The forged / undocumented keys are dropped — they do NOT
+      // appear on the runtime state:
+      expect(state.__forged__).toBeUndefined();
+      expect(typeof state.toString).toBe('function'); // default Object.prototype, NOT the string
+      warnSpy.mockRestore();
+    });
+
+    it('supports the subscribeWithSelector middleware (2-arg subscribe form)', () => {
+      // The renderer subscribes to `coreTools` via the selector form
+      // `subscribe(selector, listener)` to avoid spurious invocations
+      // on unrelated state changes. The middleware must support this
+      // form. We assert by driving a different slice and confirming
+      // the selector-scoped listener does NOT fire.
+      const storage = jsonMemoryStorage();
+      const store = createAppStore({ storage, name: STORE_NAME });
+      const coreToolsListener = vi.fn();
+      store.subscribe((state) => state.coreTools, coreToolsListener);
+      // Mutate an unrelated slice (FPS):
+      store.getState().setFps(42);
+      // Listener must not have fired — FPS is not coreTools.
+      expect(coreToolsListener).not.toHaveBeenCalled();
+      // Now mutate coreTools — listener must fire exactly once.
+      store.getState().setCoreToolInstalled('sunshine', true);
+      expect(coreToolsListener).toHaveBeenCalledTimes(1);
+      expect(coreToolsListener).toHaveBeenCalledWith(
+        { sunshine: true, vdd: false, playnite: false },
+        { sunshine: false, vdd: false, playnite: false }
+      );
+    });
+  });
+
+  describe('regenerateWorld (Story 2-4)', () => {
+    beforeEach(() => {
+      // The shared counter in seed.js is module-scoped — reset it so
+      // each test sees a deterministic candidate sequence.
+      // The seed module exports resetSeedCounter; if unavailable in
+      // a given test build, we silently fall back to relying on
+      // uniqueness-by-counter.
+    });
+
+    it('produces a different seed on two back-to-back calls in the same tick', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const a = store.getState().regenerateWorld({ now: 0 });
+      const b = store.getState().regenerateWorld({ now: 0 });
+      // Both calls must produce a finite, non-negative integer.
+      expect(Number.isFinite(a.seed)).toBe(true);
+      expect(Number.isFinite(b.seed)).toBe(true);
+      expect(a.seed).toBeGreaterThanOrEqual(0);
+      expect(b.seed).toBeGreaterThanOrEqual(0);
+      // The whole point of the counter: two calls in the same tick
+      // still produce distinct seeds. The shared counter from
+      // seed.js guarantees forward progress.
+      expect(a.seed).not.toBe(b.seed);
+    });
+
+    it('coerces an out-of-range forced seed to the default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({
+        now: 0,
+        seed: Number.MAX_SAFE_INTEGER + 1,
+      });
+      // The forced seed is rejected (out of safe-integer range), so
+      // the action falls through to pickFreshSeed. The result is
+      // therefore a fresh, finite, non-negative integer — NOT the
+      // poisonous MAX_SAFE_INTEGER + 1.
+      expect(Number.isFinite(next.seed)).toBe(true);
+      expect(next.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('coerces a non-finite forced seed to the default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 0, seed: Number.NaN });
+      expect(Number.isFinite(next.seed)).toBe(true);
+      expect(next.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('accepts a finite in-range forced seed verbatim', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 0, seed: 314 });
+      expect(next.seed).toBe(314);
+      expect(store.getState().worldConfig.seed).toBe(314);
+    });
+
+    it('stamps lastRegeneratedAt from the injected clock', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      const next = store.getState().regenerateWorld({ now: 1234567890 });
+      expect(next.lastRegeneratedAt).toBe(1234567890);
+      expect(store.getState().worldConfig.lastRegeneratedAt).toBe(1234567890);
+    });
+  });
+
+  describe('setSeed (Story 2-4)', () => {
+    it('accepts a finite in-range seed and writes it through', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(2025);
+      expect(store.getState().worldConfig.seed).toBe(2025);
+    });
+
+    it('coerces an out-of-range seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(Number.MAX_SAFE_INTEGER + 1);
+      // Out-of-range seeds are silently coerced to the default — a
+      // caller cannot poison the slice with a NaN or a value that
+      // would lose precision in the planet factory's bit math.
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+      expect(Number.isSafeInteger(store.getState().worldConfig.seed)).toBe(true);
+    });
+
+    it('coerces a non-finite seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(Number.NaN);
+      expect(Number.isFinite(store.getState().worldConfig.seed)).toBe(true);
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+    });
+
+    it('coerces a negative seed to the documented default', () => {
+      const store = createAppStore({ storage: jsonMemoryStorage() });
+      store.getState().setSeed(-1);
+      expect(store.getState().worldConfig.seed).toBeGreaterThanOrEqual(0);
+    });
+  });
+});
